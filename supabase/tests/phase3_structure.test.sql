@@ -1,5 +1,5 @@
 begin;
-select plan(49);
+select plan(53);
 
 select has_table('public', 'patient_profiles', 'patient and dependent profiles exist');
 select has_table('public', 'appointment_holds', 'server booking holds exist');
@@ -37,6 +37,10 @@ select has_function('public', 'redeem_checkin_token', 'single-use check-in RPC e
 select has_function('public', 'join_waitlist', 'waitlist join RPC exists');
 select has_function('public', 'offer_waitlist_slot', 'first-in waitlist offer RPC exists');
 select has_function('public', 'submit_appointment_review', 'completed appointment review RPC exists');
+select has_function('public', 'create_walk_in_appointment', 'clinic walk-in RPC exists');
+select has_function('public', 'mark_appointment_completed', 'verified dentist completion RPC exists');
+select has_function('public', 'get_or_create_chat_thread', 'patient clinic thread RPC exists');
+select has_function('public', 'send_chat_message', 'participant-only chat send RPC exists');
 
 select policies_are('public', 'patient_profiles', array['patient_profiles_read_owner']);
 select policies_are('public', 'appointment_holds', array['appointment_holds_read_scoped']);

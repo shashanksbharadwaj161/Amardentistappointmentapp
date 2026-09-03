@@ -38,6 +38,8 @@ export default function RootLayout() {
               <Stack.Screen name="patient/discover" />
               <Stack.Screen name="patient/dentist" />
               <Stack.Screen name="patient/profiles" />
+              <Stack.Screen name="patient/appointments" />
+              <Stack.Screen name="patient/chat" />
             </Stack>
           </AuthProvider>
         </LocaleProvider>

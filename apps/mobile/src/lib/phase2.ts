@@ -23,6 +23,7 @@ export type ProfessionalOverview = {
 
 export type CalendarContext = {
   clinic: ClinicSummary | null
+  dentistId: string | null
   service: { id: string; name: string; durationMinutes: number } | null
   slots: LocalAvailabilitySlot[]
 }
@@ -161,18 +162,19 @@ export async function getCalendarContext(userId: string, from: Date, through: Da
     }
     return {
       clinic: { id: '30000000-0000-4000-8000-000000000001', name: 'Shapla Dental Studio', city: 'Dhaka', district: 'Dhaka', status: 'approved', roles: ['clinic_owner', 'dentist'] },
+      dentistId: previewId,
       service: { id: '40000000-0000-4000-8000-000000000001', name: 'Dental consultation', durationMinutes: 30 },
       slots,
     }
   }
   const overview = await getProfessionalOverview(userId)
   const clinic = overview.clinics.find((item) => item.roles.includes('dentist')) ?? overview.clinics[0] ?? null
-  if (!clinic) return { clinic: null, service: null, slots: [] }
+  if (!clinic) return { clinic: null, dentistId: null, service: null, slots: [] }
   const { data: serviceRow, error: serviceError } = await supabase.from('clinic_services')
     .select('id,name,duration_minutes').eq('clinic_id', clinic.id).eq('is_active', true)
     .or(`dentist_id.is.null,dentist_id.eq.${userId}`).limit(1).maybeSingle()
   if (serviceError) throw new Error(serviceError.message)
-  if (!serviceRow) return { clinic, service: null, slots: [] }
+  if (!serviceRow) return { clinic, dentistId: userId, service: null, slots: [] }
   const { data: slotRows, error: slotError } = await supabase.rpc('available_clinic_slots', {
     target_clinic_id: clinic.id,
     target_dentist_id: userId,
@@ -184,9 +186,20 @@ export async function getCalendarContext(userId: string, from: Date, through: Da
   const formatter = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dhaka', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
   return {
     clinic,
+    dentistId: userId,
     service: { id: serviceRow.id, name: serviceRow.name, durationMinutes: serviceRow.duration_minutes },
     slots: (slotRows ?? []).map((row: { slot_date: string; start_at: string; end_at: string }) => ({ date: row.slot_date, startTime: formatter.format(new Date(row.start_at)), endTime: formatter.format(new Date(row.end_at)) })),
   }
+}
+
+export function subscribeToAppointmentChanges(dentistId: string, onChange: () => void): () => void {
+  const client = supabase
+  if (!client || dentistId === previewId) return () => undefined
+  const channel = client.channel(`dentist-schedule:${dentistId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments', filter: `dentist_id=eq.${dentistId}` }, onChange)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'appointment_holds', filter: `dentist_id=eq.${dentistId}` }, onChange)
+    .subscribe()
+  return () => { void client.removeChannel(channel) }
 }
 
 export async function saveClinicService(input: ClinicServiceInput): Promise<string> {

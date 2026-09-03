@@ -50,6 +50,8 @@ export default function DashboardScreen() {
 
       {!professional ? <Pressable accessibilityRole="button" onPress={() => router.push('/professional')} style={styles.joinCard}><View style={styles.joinIcon}><Stethoscope size={20} color={colors.teal} /></View><View style={styles.stepCopy}><Text style={styles.stepTitle}>{t('joinProfessional')}</Text><Text style={styles.stepDetail}>{t('joinProfessionalDetail')}</Text></View><ChevronRight size={19} color={colors.muted} /></Pressable> : null}
 
+      {!professional ? <Button label={t('appointments')} variant="secondary" onPress={() => router.push('/patient/appointments')} /> : null}
+
       <View style={styles.securityStrip}><Home size={18} color={colors.teal} /><Text style={styles.securityText}>{t('signedInAs')} {profile.email}</Text></View>
       <Button label={t('signOut')} variant="ghost" onPress={() => void signOut()} />
     </Screen>

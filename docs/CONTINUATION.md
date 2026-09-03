@@ -120,13 +120,13 @@ Use pnpm 9.12.0. Do not introduce another package manager or duplicate lockfile.
 
 ## 5. Current implementation status
 
-Gate-weighted whole-app completion: **31.85%**.
+Gate-weighted whole-app completion: **34.85%**.
 
 | Phase | Weight | Completion | Earned overall |
 | --- | ---: | ---: | ---: |
 | 1 — Foundation/auth/UI | 15% | 99% | 14.85% |
 | 2 — Clinics/verification/scheduling | 16% | 75% | 12.00% |
-| 3 — Marketplace/booking/appointments | 20% | 25% | 5.00% |
+| 3 — Marketplace/booking/appointments | 20% | 40% | 8.00% |
 | 4 — Dental EHR/clinical records | 18% | 0% | 0% |
 | 5 — Payments/finance/inventory/labs/subscriptions | 18% | 0% | 0% |
 | 6 — AI/admin completion/production hardening | 13% | 0% | 0% |
@@ -201,19 +201,22 @@ Database migration: `supabase/migrations/202609030003_phase3_marketplace_booking
 - Shared availability now removes active appointments and unexpired holds.
 - Slot booking uses a ten-minute server hold, service-derived financial/duration values, advisory transaction locks, hold exclusion, and appointment exclusion.
 - Mock confirmation is idempotent; cancellation implements the 24-hour rule; QR redemption is single-use; waitlist offers expire after 15 minutes; no-show cannot be recorded before 15 minutes.
-- `supabase/tests/phase3_structure.test.sql` contains 49 assertions.
-- `supabase/tests/phase3_booking_behavior.test.sql` contains 30 assertions including trusted pricing, overlap rejection, idempotency, cancellation reopening, QR replay resistance, RLS, and auditing.
+- `supabase/migrations/202609030004_phase3_appointment_experience.sql` adds trusted walk-ins, verified-dentist completion, participant-only chat writes, and RLS-aware Realtime publication.
+- `supabase/tests/phase3_structure.test.sql` now contains 53 assertions.
+- `supabase/tests/phase3_booking_behavior.test.sql` contains 42 assertions including trusted pricing, overlap rejection, idempotency, cancellation reopening, QR replay resistance, completion, reviews, chat, walk-ins, no-show behavior, RLS, and auditing.
 
 Shared/mobile:
 
 - `packages/domain/src/phase3.ts`, `booking.ts`, and `phase3.test.ts` define and test patient, marketplace, hold, cancellation, no-show, waitlist, and ranking rules.
-- `apps/mobile/app/patient/discover.tsx` provides dark map/list discovery, search/open-now interaction, foreground location, and accessible dentist cards.
+- `apps/mobile/app/patient/discover.tsx` provides dark map/list discovery, full filter controls, foreground location, and accessible dentist cards.
 - `apps/mobile/app/patient/dentist.tsx` provides patient selection, server availability, protected hold, trusted mock deposit, confirmation, and receipt.
 - `apps/mobile/app/patient/profiles.tsx` manages self and family profiles.
+- `apps/mobile/app/patient/appointments.tsx` provides history, policy-aware cancellation, and clinic messaging entry.
+- `apps/mobile/app/patient/chat.tsx` provides participant-only messaging with realtime inserts.
 - `apps/mobile/src/lib/phase3.ts` connects Supabase RPCs and deterministic preview fixtures.
 - `.maestro/phase3-marketplace-booking.yaml` covers the patient preview journey.
 
-Verified in-browser: the complete English discovery-to-receipt flow and Bangla discovery. The map is currently an original interactive visual canvas, not a production street-map provider. Full filters are supported at the RPC/schema layer but only search and open-now are exposed in the first UI slice.
+Verified in-browser: the complete English discovery-to-receipt flow, full filter panel, appointment history/cancellation, and messaging, plus Bangla discovery. The map is currently an original interactive visual canvas, not a production street-map provider.
 
 ## 6. Verified evidence at this checkpoint
 
@@ -232,7 +235,7 @@ Successful on 2026-09-03:
 - `pnpm verify:edge` — 16 Edge Function tests passed, 8 per invitation function.
 - `pnpm verify:e2e` — 5 Playwright tests passed across desktop and mobile Chromium; one desktop-only mobile-navigation test was intentionally skipped.
 - Phase 2 migration and pgTAP files were syntactically parsed as PostgreSQL using `pglast`: 86 migration statements, 75 access-test statements, and 40 structure-test statements.
-- Phase 3 migration and pgTAP files were syntactically parsed using `pglast`: 87 migration statements, 53 structure-test statements, and 61 behavior-test statements.
+- Phase 3 migrations and pgTAP files were syntactically parsed using `pglast`: 87 core-migration statements, 9 experience-migration statements, 57 structure-test statements, and 85 behavior-test statements.
 - `git diff --check` passed.
 
 Not yet proven:
@@ -242,7 +245,7 @@ Not yet proven:
 - `clinic-invite` has not been deployed or live-tested.
 - Physical iOS/Android Maestro runs are outstanding.
 - English/Bangla large-text and reduced-motion physical visual QA is outstanding.
-- Phase 3 advanced filter controls, production map provider, realtime/walk-in/reschedule/appointment-list/chat UI, and device E2E are outstanding.
+- Phase 3 production map provider, reschedule/waitlist-acceptance/QR/review/professional-walk-in/clinic-chat UI, notification processing, and device E2E are outstanding.
 
 Do not describe those items as passed based on syntax parsing or web preview alone.
 

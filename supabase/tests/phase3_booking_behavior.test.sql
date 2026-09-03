@@ -1,5 +1,5 @@
 begin;
-select plan(30);
+select plan(42);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_user_meta_data)
 values
@@ -157,6 +157,39 @@ select lives_ok($$select public.redeem_checkin_token(current_setting('test.check
 select throws_ok($$select public.redeem_checkin_token(current_setting('test.checkin_token'))$$, '22023', 'CHECKIN_TOKEN_INVALID', 'a redeemed QR token cannot be replayed');
 select results_eq($$select status::text from public.appointments where id='33000000-0000-4000-8000-000000000001'$$, $$values ('checked_in'::text)$$, 'successful QR redemption checks the patient in');
 select throws_ok($$select public.mark_appointment_no_show('33000000-0000-4000-8000-000000000001')$$, '22023', 'NO_SHOW_NOT_AVAILABLE', 'checked-in appointment cannot be marked no-show');
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000002';
+set local "request.jwt.claim.role" = 'authenticated';
+select lives_ok($$select public.mark_appointment_completed('33000000-0000-4000-8000-000000000001')$$, 'the assigned verified dentist completes a checked-in appointment');
+select results_eq($$select status::text from public.appointments where id='33000000-0000-4000-8000-000000000001'$$, $$values ('completed'::text)$$, 'completed status is stored');
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000003';
+set local "request.jwt.claim.role" = 'authenticated';
+select lives_ok($$select public.submit_appointment_review('33000000-0000-4000-8000-000000000001', 5, 'Clear and calm visit')$$, 'patient reviews a completed appointment');
+select throws_ok($$select public.submit_appointment_review('33000000-0000-4000-8000-000000000001', 4, '')$$, '23505', 'REVIEW_ALREADY_SUBMITTED', 'one completed appointment cannot create duplicate reviews');
+select ok(length(set_config('test.chat_thread', public.get_or_create_chat_thread(
+  (select id from public.patient_profiles where account_owner_id='30000000-0000-4000-8000-000000000003'),
+  '31000000-0000-4000-8000-000000000001','33000000-0000-4000-8000-000000000001')::text, true)) = 36, 'patient creates an appointment-scoped clinic thread');
+select lives_ok($$select public.send_chat_message(current_setting('test.chat_thread')::uuid, 'Please confirm arrival time')$$, 'patient sends a clinic message');
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000005';
+set local "request.jwt.claim.role" = 'authenticated';
+select results_eq($$select count(*)::bigint from public.chat_messages where thread_id=current_setting('test.chat_thread')::uuid$$, $$values (1::bigint)$$, 'authorized front desk can read the clinic thread');
+select lives_ok($$select public.send_chat_message(current_setting('test.chat_thread')::uuid, 'Please arrive ten minutes early')$$, 'authorized front desk can reply');
+select ok(length(set_config('test.walk_in', public.create_walk_in_appointment(
+  (select id from public.patient_profiles where account_owner_id='30000000-0000-4000-8000-000000000003'),
+  '32000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002',clock_timestamp() + interval '2 hours')::text, true)) = 36, 'front desk creates a non-overlapping walk-in');
+select ok(length(set_config('test.no_show', public.create_walk_in_appointment(
+  (select id from public.patient_profiles where account_owner_id='30000000-0000-4000-8000-000000000003'),
+  '32000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002',clock_timestamp() - interval '20 minutes')::text, true)) = 36, 'front desk records an already-started walk-in');
+select lives_ok($$select public.mark_appointment_no_show(current_setting('test.no_show')::uuid)$$, 'front desk marks no-show after fifteen minutes');
+select results_eq($$select status::text || ':' || cancellation_disposition::text from public.appointments where id=current_setting('test.no_show')::uuid$$, $$values ('no_show:forfeited'::text)$$, 'no-show forfeits the deposit and closes the started slot');
 
 reset role;
 select results_eq(

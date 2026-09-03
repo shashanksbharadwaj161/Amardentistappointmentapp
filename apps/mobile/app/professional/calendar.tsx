@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { Redirect, router, Stack } from 'expo-router'
 import { CalendarClock, CheckCircle2, Clock3, SlidersHorizontal } from 'lucide-react-native'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
 import { Button } from '../../src/components/Button'
 import { SectionCard } from '../../src/components/SectionCard'
 import { Screen } from '../../src/components/Screen'
-import { getCalendarContext } from '../../src/lib/phase2'
+import { getCalendarContext, subscribeToAppointmentChanges } from '../../src/lib/phase2'
 import { useAuth } from '../../src/providers/AuthProvider'
 import { useLocale } from '../../src/providers/LocaleProvider'
 import { colors, hitTarget, radius, shadow, spacing } from '../../src/theme'
@@ -30,6 +30,7 @@ export default function ProfessionalCalendarScreen() {
     queryFn: () => getCalendarContext(profile!.id, range.from, range.through),
     enabled: Boolean(profile),
   })
+  useEffect(() => calendar.data?.dentistId ? subscribeToAppointmentChanges(calendar.data.dentistId, () => { void calendar.refetch() }) : undefined, [calendar.data?.dentistId, calendar.refetch])
   if (!loading && !profile) return <Redirect href="/" />
   if (!profile) return null
 

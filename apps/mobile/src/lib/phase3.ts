@@ -6,6 +6,8 @@ export type PatientProfileSummary = PatientProfileInput & { id: string }
 export type BookingSlot = { startAt: string; endAt: string }
 export type BookingHold = { id: string; expiresAt: string; endAt: string; priceBdt: number; depositBdt: number }
 export type BookingConfirmation = { appointmentId: string; receiptNumber: string; status: string }
+export type AppointmentSummary = { id: string; patientProfileId: string; clinicId: string; clinicName: string; serviceName: string; startAt: string; endAt: string; status: string; depositBdt: number; cancellationDisposition: string | null }
+export type ChatMessage = { id: string; senderId: string; body: string; createdAt: string }
 
 const previewUserId = '00000000-0000-4000-8000-000000000001'
 const previewClinicId = '30000000-0000-4000-8000-000000000001'
@@ -108,4 +110,54 @@ export async function confirmMockBooking(holdId: string): Promise<BookingConfirm
   if (error) throw new Error(error.message)
   const row = data[0]
   return { appointmentId: row.appointment_id, receiptNumber: row.receipt_number, status: row.appointment_status }
+}
+
+export async function getAppointments(userId: string): Promise<AppointmentSummary[]> {
+  if (!supabase || previewEnabled || userId === previewUserId) {
+    const start = new Date(); start.setUTCDate(start.getUTCDate() + 2); start.setUTCHours(4, 0, 0, 0)
+    return [{ id: '60000000-0000-4000-8000-000000000001', patientProfileId: previewUserId, clinicId: previewClinicId, clinicName: 'Shapla Dental Studio', serviceName: 'Dental consultation', startAt: start.toISOString(), endAt: new Date(start.getTime() + 1_800_000).toISOString(), status: 'confirmed', depositBdt: 200, cancellationDisposition: null }]
+  }
+  const { data, error } = await supabase.from('appointments').select('id,patient_profile_id,clinic_id,start_at,end_at,status,deposit_bdt,cancellation_disposition,clinics(name),clinic_services(name)').order('start_at', { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((row) => { const clinicValue = row.clinics as unknown; const serviceValue = row.clinic_services as unknown; const clinic = (Array.isArray(clinicValue) ? clinicValue[0] : clinicValue) as { name: string } | null; const service = (Array.isArray(serviceValue) ? serviceValue[0] : serviceValue) as { name: string } | null; return { id: row.id, patientProfileId: row.patient_profile_id, clinicId: row.clinic_id, clinicName: clinic?.name ?? '', serviceName: service?.name ?? '', startAt: row.start_at, endAt: row.end_at, status: row.status, depositBdt: Number(row.deposit_bdt), cancellationDisposition: row.cancellation_disposition } })
+}
+
+export async function cancelAppointment(appointmentId: string, reason = ''): Promise<string> {
+  if (!supabase || previewEnabled) return 'refundable'
+  const { data, error } = await supabase.rpc('cancel_appointment', { target_appointment_id: appointmentId, cancellation_reason: reason })
+  if (error) throw new Error(error.message)
+  return data as string
+}
+
+export async function getOrCreateChatThread(patientProfileId: string, clinicId: string, appointmentId: string | null): Promise<string> {
+  if (!supabase || previewEnabled) return '70000000-0000-4000-8000-000000000001'
+  const { data, error } = await supabase.rpc('get_or_create_chat_thread', { target_patient_profile_id: patientProfileId, target_clinic_id: clinicId, target_appointment_id: appointmentId })
+  if (error) throw new Error(error.message)
+  return data as string
+}
+
+export async function getChatMessages(threadId: string): Promise<ChatMessage[]> {
+  if (!supabase || previewEnabled) return [{ id: '71000000-0000-4000-8000-000000000001', senderId: 'clinic', body: 'Your appointment is confirmed. Please arrive 10 minutes early.', createdAt: new Date().toISOString() }]
+  const { data, error } = await supabase.from('chat_messages').select('id,sender_id,body,created_at').eq('thread_id', threadId).order('created_at')
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((row) => ({ id: row.id, senderId: row.sender_id, body: row.body, createdAt: row.created_at }))
+}
+
+export async function sendChatMessage(threadId: string, body: string): Promise<string> {
+  if (!supabase || previewEnabled) return requestId()
+  const { data, error } = await supabase.rpc('send_chat_message', { target_thread_id: threadId, message_body: body })
+  if (error) throw new Error(error.message)
+  return data as string
+}
+
+export function subscribeToChatMessages(threadId: string, onMessage: (message: ChatMessage) => void): () => void {
+  const client = supabase
+  if (!client || previewEnabled) return () => undefined
+  const channel = client.channel(`chat:${threadId}`)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `thread_id=eq.${threadId}` }, (payload) => {
+      const row = payload.new as { id: string; sender_id: string; body: string; created_at: string }
+      onMessage({ id: row.id, senderId: row.sender_id, body: row.body, createdAt: row.created_at })
+    })
+    .subscribe()
+  return () => { void client.removeChannel(channel) }
 }
