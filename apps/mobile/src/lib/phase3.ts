@@ -6,7 +6,7 @@ export type PatientProfileSummary = PatientProfileInput & { id: string }
 export type BookingSlot = { startAt: string; endAt: string }
 export type BookingHold = { id: string; expiresAt: string; endAt: string; priceBdt: number; depositBdt: number }
 export type BookingConfirmation = { appointmentId: string; receiptNumber: string; status: string }
-export type AppointmentSummary = { id: string; patientProfileId: string; clinicId: string; clinicName: string; serviceName: string; startAt: string; endAt: string; status: string; depositBdt: number; cancellationDisposition: string | null }
+export type AppointmentSummary = { id: string; patientProfileId: string; clinicId: string; clinicName: string; dentistId: string; serviceId: string; serviceName: string; durationMinutes: number; priceBdt: number; startAt: string; endAt: string; status: string; depositBdt: number; cancellationDisposition: string | null }
 export type ChatMessage = { id: string; senderId: string; body: string; createdAt: string }
 
 const previewUserId = '00000000-0000-4000-8000-000000000001'
@@ -115,16 +115,31 @@ export async function confirmMockBooking(holdId: string): Promise<BookingConfirm
 export async function getAppointments(userId: string): Promise<AppointmentSummary[]> {
   if (!supabase || previewEnabled || userId === previewUserId) {
     const start = new Date(); start.setUTCDate(start.getUTCDate() + 2); start.setUTCHours(4, 0, 0, 0)
-    return [{ id: '60000000-0000-4000-8000-000000000001', patientProfileId: previewUserId, clinicId: previewClinicId, clinicName: 'Shapla Dental Studio', serviceName: 'Dental consultation', startAt: start.toISOString(), endAt: new Date(start.getTime() + 1_800_000).toISOString(), status: 'confirmed', depositBdt: 200, cancellationDisposition: null }]
+    return [{ id: '60000000-0000-4000-8000-000000000001', patientProfileId: previewUserId, clinicId: previewClinicId, clinicName: 'Shapla Dental Studio', dentistId: previewDentistId, serviceId: previewServiceId, serviceName: 'Dental consultation', durationMinutes: 30, priceBdt: 800, startAt: start.toISOString(), endAt: new Date(start.getTime() + 1_800_000).toISOString(), status: 'confirmed', depositBdt: 200, cancellationDisposition: null }]
   }
-  const { data, error } = await supabase.from('appointments').select('id,patient_profile_id,clinic_id,start_at,end_at,status,deposit_bdt,cancellation_disposition,clinics(name),clinic_services(name)').order('start_at', { ascending: false })
+  const { data, error } = await supabase.from('appointments').select('id,patient_profile_id,clinic_id,dentist_id,service_id,duration_minutes,price_bdt,start_at,end_at,status,deposit_bdt,cancellation_disposition,clinics(name),clinic_services(name)').order('start_at', { ascending: false })
   if (error) throw new Error(error.message)
-  return (data ?? []).map((row) => { const clinicValue = row.clinics as unknown; const serviceValue = row.clinic_services as unknown; const clinic = (Array.isArray(clinicValue) ? clinicValue[0] : clinicValue) as { name: string } | null; const service = (Array.isArray(serviceValue) ? serviceValue[0] : serviceValue) as { name: string } | null; return { id: row.id, patientProfileId: row.patient_profile_id, clinicId: row.clinic_id, clinicName: clinic?.name ?? '', serviceName: service?.name ?? '', startAt: row.start_at, endAt: row.end_at, status: row.status, depositBdt: Number(row.deposit_bdt), cancellationDisposition: row.cancellation_disposition } })
+  return (data ?? []).map((row) => { const clinicValue = row.clinics as unknown; const serviceValue = row.clinic_services as unknown; const clinic = (Array.isArray(clinicValue) ? clinicValue[0] : clinicValue) as { name: string } | null; const service = (Array.isArray(serviceValue) ? serviceValue[0] : serviceValue) as { name: string } | null; return { id: row.id, patientProfileId: row.patient_profile_id, clinicId: row.clinic_id, clinicName: clinic?.name ?? '', dentistId: row.dentist_id, serviceId: row.service_id, serviceName: service?.name ?? '', durationMinutes: row.duration_minutes, priceBdt: Number(row.price_bdt), startAt: row.start_at, endAt: row.end_at, status: row.status, depositBdt: Number(row.deposit_bdt), cancellationDisposition: row.cancellation_disposition } })
 }
 
 export async function cancelAppointment(appointmentId: string, reason = ''): Promise<string> {
   if (!supabase || previewEnabled) return 'refundable'
   const { data, error } = await supabase.rpc('cancel_appointment', { target_appointment_id: appointmentId, cancellation_reason: reason })
+  if (error) throw new Error(error.message)
+  return data as string
+}
+
+export async function rescheduleAppointment(appointmentId: string, holdId: string): Promise<BookingConfirmation> {
+  if (!supabase || previewEnabled) return { appointmentId: requestId(), receiptNumber: `AMR-${Date.now().toString(36).toUpperCase()}`, status: 'confirmed' }
+  const { data, error } = await supabase.rpc('reschedule_appointment', { target_appointment_id: appointmentId, target_hold_id: holdId, request_id: requestId() })
+  if (error) throw new Error(error.message)
+  const row = data[0]
+  return { appointmentId: row.appointment_id, receiptNumber: row.receipt_number, status: 'confirmed' }
+}
+
+export async function issueCheckinToken(appointmentId: string): Promise<string> {
+  if (!supabase || previewEnabled) return `${requestId()}-${requestId()}`
+  const { data, error } = await supabase.rpc('issue_checkin_token', { target_appointment_id: appointmentId })
   if (error) throw new Error(error.message)
   return data as string
 }

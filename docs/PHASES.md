@@ -66,16 +66,16 @@ First local slice implemented on 2026-09-03:
 - Search, specialty, price, rating, gender, language, and open-now controls; server supports distance and radius filters.
 - Trusted availability and service-derived duration, price, and deposit.
 - Ten-minute booking holds, advisory slot serialization, hold and appointment exclusion constraints, idempotent mock confirmation, receipts, and availability reopening after valid cancellation.
-- Appointment history/cancellation, participant-only patient-clinic chat, realtime chat and professional schedule refresh, trusted walk-ins, and assigned verified-dentist completion.
-- QR/check-in token primitives, waitlist offers, 24-hour deposit policy, 15-minute no-show rule, verified reviews, audit events, and privacy-safe notification outbox.
-- Five shared booking-rule tests, 53 structural pgTAP assertions, 42 behavioral pgTAP assertions, and a Maestro marketplace/booking flow.
+- Appointment history/cancellation/rescheduling, participant-only patient-clinic chat, realtime chat and professional schedule refresh, trusted walk-ins, and assigned verified-dentist completion.
+- Single-use QR presentation/check-in primitives, exclusion-protected 15-minute waitlist offers, 24-hour deposit policy, 15-minute no-show rule, verified reviews, audit events, and privacy-safe notification outbox.
+- Five shared booking-rule tests, 56 structural pgTAP assertions, 51 behavioral pgTAP assertions, and a Maestro marketplace/booking flow.
 - English discovery-to-receipt, filters, history/cancellation, and messaging plus Bangla discovery passed browser interaction; all-platform production export passed.
 
 Still required before Phase 3 closes:
 
 - Apply and semantically verify the Phase 2 and Phase 3 migrations/RLS on PostgreSQL.
 - Connect an actual map provider while preserving list access.
-- Complete rescheduling, waitlist acceptance, QR presentation/scanning, review submission UI, professional walk-in UI, and clinic-side chat workspace.
+- Complete waitlist patient acceptance, QR scanning, review submission UI, professional walk-in UI, and clinic-side chat workspace.
 - Deploy notification processing and verify failure/retry behavior.
 - Run concurrent database clients to prove exactly one booking winner.
 - Run physical iOS/Android Maestro and English/Bangla visual/accessibility gates.

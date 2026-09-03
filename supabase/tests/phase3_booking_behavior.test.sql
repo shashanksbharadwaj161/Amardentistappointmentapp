@@ -1,5 +1,5 @@
 begin;
-select plan(42);
+select plan(51);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_user_meta_data)
 values
@@ -190,6 +190,49 @@ select ok(length(set_config('test.no_show', public.create_walk_in_appointment(
   '32000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002',clock_timestamp() - interval '20 minutes')::text, true)) = 36, 'front desk records an already-started walk-in');
 select lives_ok($$select public.mark_appointment_no_show(current_setting('test.no_show')::uuid)$$, 'front desk marks no-show after fifteen minutes');
 select results_eq($$select status::text || ':' || cancellation_disposition::text from public.appointments where id=current_setting('test.no_show')::uuid$$, $$values ('no_show:forfeited'::text)$$, 'no-show forfeits the deposit and closes the started slot');
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000003';
+set local "request.jwt.claim.role" = 'authenticated';
+select ok(length(set_config('test.reschedule_hold', (select hold_id from public.create_appointment_hold(
+  (select id from public.patient_profiles where account_owner_id='30000000-0000-4000-8000-000000000003'),
+  '32000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002',
+  ((current_date + 7 + time '09:30') at time zone 'Asia/Dhaka')))::text, true)) = 36, 'patient protects a replacement slot before rescheduling');
+select lives_ok($$select * from public.reschedule_appointment(current_setting('test.walk_in')::uuid,current_setting('test.reschedule_hold')::uuid,'reschedule-request-0001')$$, 'rescheduling atomically consumes the replacement hold');
+select results_eq($$select status::text || ':' || cancellation_disposition::text from public.appointments where id=current_setting('test.walk_in')::uuid$$, $$values ('cancelled:forfeited'::text)$$, 'rescheduling inside 24 hours forfeits the original deposit');
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000004';
+set local "request.jwt.claim.role" = 'authenticated';
+select ok(length(set_config('test.waitlist', public.join_waitlist(
+  (select id from public.patient_profiles where account_owner_id='30000000-0000-4000-8000-000000000004'),
+  '31000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002',
+  '32000000-0000-4000-8000-000000000001',current_date + 7,'10:00','11:00')::text, true)) = 36, 'patient joins a dated waitlist');
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000005';
+set local "request.jwt.claim.role" = 'authenticated';
+select lives_ok($$select public.offer_waitlist_slot('31000000-0000-4000-8000-000000000001','32000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002',((current_date + 7 + time '10:00') at time zone 'Asia/Dhaka'))$$, 'front desk offers the first waitlisted patient a protected slot');
+select ok((select h.expires_at between h.created_at + interval '14 minutes 59 seconds' and h.created_at + interval '15 minutes 1 second' from public.appointment_holds h join public.waitlist_entries w on w.offer_hold_id=h.id where w.id=current_setting('test.waitlist')::uuid), 'waitlist offer reserves the slot for fifteen minutes');
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000003';
+set local "request.jwt.claim.role" = 'authenticated';
+select throws_ok($$select * from public.create_appointment_hold(
+  (select id from public.patient_profiles where account_owner_id='30000000-0000-4000-8000-000000000003'),
+  '32000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002',
+  ((current_date + 7 + time '10:00') at time zone 'Asia/Dhaka'))$$, '23P01', 'SLOT_UNAVAILABLE', 'the waitlist reservation blocks competing booking holds');
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000004';
+set local "request.jwt.claim.role" = 'authenticated';
+select lives_ok($$select * from public.confirm_waitlist_offer(current_setting('test.waitlist')::uuid,'waitlist-confirmation-0001')$$, 'the offered patient confirms through the reserved hold');
+select results_eq($$select status::text from public.waitlist_entries where id=current_setting('test.waitlist')::uuid$$, $$values ('booked'::text)$$, 'confirmed waitlist offer becomes booked');
 
 reset role;
 select results_eq(

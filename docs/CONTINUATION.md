@@ -52,6 +52,7 @@ Useful primary documentation:
 - Expo DocumentPicker SDK 57: <https://docs.expo.dev/versions/v57.0.0/sdk/document-picker/>
 - Expo ImagePicker SDK 57: <https://docs.expo.dev/versions/v57.0.0/sdk/imagepicker/>
 - Expo Location SDK 57: <https://docs.expo.dev/versions/v57.0.0/sdk/location/>
+- React Native QR SVG: <https://github.com/Expensify/react-native-qrcode-svg>
 - Supabase database migrations: <https://supabase.com/docs/guides/deployment/database-migrations>
 - Supabase Row Level Security: <https://supabase.com/docs/guides/database/postgres/row-level-security>
 - Supabase Storage access control: <https://supabase.com/docs/guides/storage/security/access-control>
@@ -120,13 +121,13 @@ Use pnpm 9.12.0. Do not introduce another package manager or duplicate lockfile.
 
 ## 5. Current implementation status
 
-Gate-weighted whole-app completion: **34.85%**.
+Gate-weighted whole-app completion: **36.85%**.
 
 | Phase | Weight | Completion | Earned overall |
 | --- | ---: | ---: | ---: |
 | 1 — Foundation/auth/UI | 15% | 99% | 14.85% |
 | 2 — Clinics/verification/scheduling | 16% | 75% | 12.00% |
-| 3 — Marketplace/booking/appointments | 20% | 40% | 8.00% |
+| 3 — Marketplace/booking/appointments | 20% | 50% | 10.00% |
 | 4 — Dental EHR/clinical records | 18% | 0% | 0% |
 | 5 — Payments/finance/inventory/labs/subscriptions | 18% | 0% | 0% |
 | 6 — AI/admin completion/production hardening | 13% | 0% | 0% |
@@ -202,8 +203,9 @@ Database migration: `supabase/migrations/202609030003_phase3_marketplace_booking
 - Slot booking uses a ten-minute server hold, service-derived financial/duration values, advisory transaction locks, hold exclusion, and appointment exclusion.
 - Mock confirmation is idempotent; cancellation implements the 24-hour rule; QR redemption is single-use; waitlist offers expire after 15 minutes; no-show cannot be recorded before 15 minutes.
 - `supabase/migrations/202609030004_phase3_appointment_experience.sql` adds trusted walk-ins, verified-dentist completion, participant-only chat writes, and RLS-aware Realtime publication.
-- `supabase/tests/phase3_structure.test.sql` now contains 53 assertions.
-- `supabase/tests/phase3_booking_behavior.test.sql` contains 42 assertions including trusted pricing, overlap rejection, idempotency, cancellation reopening, QR replay resistance, completion, reviews, chat, walk-ins, no-show behavior, RLS, and auditing.
+- `supabase/migrations/202609030005_phase3_reschedule_waitlist.sql` adds atomic rescheduling and exclusion-protected 15-minute waitlist reservations/confirmation.
+- `supabase/tests/phase3_structure.test.sql` now contains 56 assertions.
+- `supabase/tests/phase3_booking_behavior.test.sql` contains 51 assertions including trusted pricing, overlap rejection, idempotency, cancellation reopening, rescheduling, waitlist reservation, QR replay resistance, completion, reviews, chat, walk-ins, no-show behavior, RLS, and auditing.
 
 Shared/mobile:
 
@@ -212,6 +214,7 @@ Shared/mobile:
 - `apps/mobile/app/patient/dentist.tsx` provides patient selection, server availability, protected hold, trusted mock deposit, confirmation, and receipt.
 - `apps/mobile/app/patient/profiles.tsx` manages self and family profiles.
 - `apps/mobile/app/patient/appointments.tsx` provides history, policy-aware cancellation, and clinic messaging entry.
+- The appointments surface also provides atomic rescheduling entry and short-lived single-use QR presentation using only an opaque token.
 - `apps/mobile/app/patient/chat.tsx` provides participant-only messaging with realtime inserts.
 - `apps/mobile/src/lib/phase3.ts` connects Supabase RPCs and deterministic preview fixtures.
 - `.maestro/phase3-marketplace-booking.yaml` covers the patient preview journey.
@@ -228,14 +231,14 @@ Successful on 2026-09-03:
   - 14 shared tests passed, including 5 Phase 3 booking tests.
   - 6 mobile component/link tests passed.
   - 2 Admin tests passed.
-  - secret scan passed across 138 files.
+  - secret scan passed across 154 files.
   - UI audit returned zero findings.
   - Admin production build passed.
   - Expo production export passed for web, iOS, and Android.
 - `pnpm verify:edge` — 16 Edge Function tests passed, 8 per invitation function.
 - `pnpm verify:e2e` — 5 Playwright tests passed across desktop and mobile Chromium; one desktop-only mobile-navigation test was intentionally skipped.
 - Phase 2 migration and pgTAP files were syntactically parsed as PostgreSQL using `pglast`: 86 migration statements, 75 access-test statements, and 40 structure-test statements.
-- Phase 3 migrations and pgTAP files were syntactically parsed using `pglast`: 87 core-migration statements, 9 experience-migration statements, 57 structure-test statements, and 85 behavior-test statements.
+- Phase 3 migrations and pgTAP files were syntactically parsed using `pglast`: 87 core-migration statements, 9 experience-migration statements, 8 reschedule/waitlist statements, 60 structure-test statements, and 114 behavior-test statements.
 - `git diff --check` passed.
 
 Not yet proven:
@@ -245,7 +248,7 @@ Not yet proven:
 - `clinic-invite` has not been deployed or live-tested.
 - Physical iOS/Android Maestro runs are outstanding.
 - English/Bangla large-text and reduced-motion physical visual QA is outstanding.
-- Phase 3 production map provider, reschedule/waitlist-acceptance/QR/review/professional-walk-in/clinic-chat UI, notification processing, and device E2E are outstanding.
+- Phase 3 production map provider, waitlist-acceptance/QR-scanning/review/professional-walk-in/clinic-chat UI, notification processing, and device E2E are outstanding.
 
 Do not describe those items as passed based on syntax parsing or web preview alone.
 
@@ -263,7 +266,9 @@ Preferred safe resolution, in order:
 4. Apply `202609030002_phase2_clinics_scheduling.sql`.
 5. Run the two Phase 2 pgTAP files against the actual project.
 6. Deploy `clinic-invite` and verify unauthenticated, unauthorized, successful existing-user, successful new-user, and delivery-failure paths.
-7. Record proof in `docs/PROGRESS.md`; never paste tokens, email addresses, or passwords into the repository.
+7. Apply the Phase 3 migrations in order: `202609030003_phase3_marketplace_booking.sql`, `202609030004_phase3_appointment_experience.sql`, then `202609030005_phase3_reschedule_waitlist.sql`.
+8. Run both Phase 3 pgTAP files against the actual project, including the concurrent-booking and waitlist-hold cases.
+9. Record proof in `docs/PROGRESS.md`; never paste tokens, email addresses, or passwords into the repository.
 
 Before applying the Phase 2 migration, pay special attention to:
 
@@ -280,7 +285,9 @@ Before applying the Phase 2 migration, pay special attention to:
 2. Run `.maestro/phase2-clinic-scheduling.yaml` on physical iOS and Android devices.
 3. Re-run `pnpm verify:local`, `pnpm verify:edge`, `pnpm verify:e2e`, and database tests after any fix.
 4. Mark Phase 2 100% only after pending visibility, cross-clinic isolation, and exception-driven availability are proven on live PostgreSQL and physical mobile checks pass.
-5. Continue Phase 3 from the existing additive migration. Do not edit an already-applied migration after deployment; add a corrective migration instead.
+5. Complete the remaining Phase 3 UI in this order: patient waitlist join/accept, verified review submission, professional walk-in creation, clinic-side chat, then QR scanning/device proof.
+6. Select and integrate a production map provider only when its credential and billing constraints are confirmed; preserve the accessible list and location-denied fallback.
+7. Do not begin Phase 4 until the remaining Phase 3 work is checkpointed and all locally runnable gates are green. Do not edit an already-applied migration after deployment; add a corrective migration instead.
 
 Suggested commands:
 

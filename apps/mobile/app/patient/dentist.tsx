@@ -7,13 +7,13 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { Button } from '../../src/components/Button'
 import { Screen } from '../../src/components/Screen'
 import { SectionCard } from '../../src/components/SectionCard'
-import { confirmMockBooking, createBookingHold, getBookingSlots, getPatientProfiles, type BookingConfirmation, type BookingHold } from '../../src/lib/phase3'
+import { confirmMockBooking, createBookingHold, getBookingSlots, getPatientProfiles, rescheduleAppointment, type BookingConfirmation, type BookingHold } from '../../src/lib/phase3'
 import { useAuth } from '../../src/providers/AuthProvider'
 import { useLocale } from '../../src/providers/LocaleProvider'
 import { colors, hitTarget, radius, spacing } from '../../src/theme'
 
 export default function DentistBookingScreen() {
-  const { item: encoded } = useLocalSearchParams<{ item?: string }>()
+  const { item: encoded, rescheduleId } = useLocalSearchParams<{ item?: string; rescheduleId?: string }>()
   const { profile, loading } = useAuth()
   const { locale, t } = useLocale()
   const item = useMemo(() => { try { return encoded ? JSON.parse(encoded) as MarketplaceDentist : null } catch { return null } }, [encoded])
@@ -39,7 +39,7 @@ export default function DentistBookingScreen() {
   const confirm = async () => {
     if (!hold) return
     setBusy(true); setMessage(null)
-    try { setConfirmation(await confirmMockBooking(hold.id)) } catch { setMessage(t('authUnavailable')) } finally { setBusy(false) }
+    try { setConfirmation(rescheduleId ? await rescheduleAppointment(rescheduleId, hold.id) : await confirmMockBooking(hold.id)) } catch { setMessage(t('authUnavailable')) } finally { setBusy(false) }
   }
 
   if (confirmation) return <Screen maxWidth={680} style={styles.screen}>
@@ -50,7 +50,7 @@ export default function DentistBookingScreen() {
   </Screen>
 
   return <Screen maxWidth={760} style={styles.screen}>
-    <Stack.Screen options={{ title: item.dentistName, headerBackTitle: t('back') }} />
+    <Stack.Screen options={{ title: rescheduleId ? t('rescheduleAppointment') : item.dentistName, headerBackTitle: t('back') }} />
     <View style={styles.profile}><View style={styles.avatar}><Text style={styles.avatarText}>{item.dentistName.split(' ').at(-1)?.slice(0, 1)}</Text></View><View style={styles.profileCopy}><View style={styles.verified}><Text style={styles.title}>{item.dentistName}</Text><CheckCircle2 size={18} color={colors.teal} /></View><Text style={styles.subtitle}>{item.professionalTitle} · {item.clinicName}</Text><View style={styles.rating}><Star size={14} color={colors.warning} fill={colors.warning} /><Text style={styles.ratingText}>{item.rating.toFixed(1)} · {item.reviewCount} {t('reviews')}</Text></View></View></View>
     <View style={styles.trust}><ShieldCheck size={18} color={colors.teal} /><Text style={styles.trustText}>{t('trustedPrice')}</Text></View>
     <SectionCard eyebrow={t('profileFamily').toUpperCase()} title={t('profileFamilyBody')}>
