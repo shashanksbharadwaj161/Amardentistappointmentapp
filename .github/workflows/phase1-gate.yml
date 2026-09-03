@@ -1,0 +1,68 @@
+name: Phase 1 gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  application:
+    name: Application and UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+          run_install: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify:local
+      - run: pnpm --filter @amar-dentist/admin exec playwright install --with-deps chromium
+      - run: pnpm verify:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase1-ui-evidence
+          path: |
+            docs/verification/*.png
+            apps/admin/playwright-report/
+            apps/admin/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  database:
+    name: Database and RLS
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.116.0
+      - run: supabase db start
+      - run: supabase db lint --local --level warning --fail-on warning
+      - run: supabase test db
+
+  edge-functions:
+    name: Edge Functions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: deno test --config supabase/functions/deno.json --allow-env --allow-net supabase/functions

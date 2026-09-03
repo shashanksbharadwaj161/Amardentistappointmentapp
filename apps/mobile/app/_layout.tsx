@@ -1,0 +1,44 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { Stack } from 'expo-router'
+import { StatusBar } from 'expo-status-bar'
+import { useEffect, useState } from 'react'
+import { AccessibilityInfo } from 'react-native'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
+import { AuthProvider } from '../src/providers/AuthProvider'
+import { LocaleProvider } from '../src/providers/LocaleProvider'
+import { colors } from '../src/theme'
+
+export default function RootLayout() {
+  const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: 1 } } }))
+  const [reduceMotion, setReduceMotion] = useState(false)
+  useEffect(() => {
+    void AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion)
+    const subscription = AccessibilityInfo.addEventListener('reduceMotionChanged', setReduceMotion)
+    return () => subscription.remove()
+  }, [])
+  return (
+    <SafeAreaProvider>
+      <QueryClientProvider client={queryClient}>
+        <LocaleProvider>
+          <AuthProvider>
+            <StatusBar style="dark" />
+            <Stack screenOptions={{ headerShadowVisible: false, headerStyle: { backgroundColor: colors.pearl }, headerTintColor: colors.ink, contentStyle: { backgroundColor: colors.pearl }, animation: reduceMotion ? 'none' : 'slide_from_right' }}>
+              <Stack.Screen name="index" options={{ headerShown: false }} />
+              <Stack.Screen name="sign-in" />
+              <Stack.Screen name="register" />
+              <Stack.Screen name="auth/callback" options={{ headerShown: false }} />
+              <Stack.Screen name="reset-password" />
+              <Stack.Screen name="dashboard" options={{ headerShown: false }} />
+              <Stack.Screen name="professional/index" />
+              <Stack.Screen name="professional/clinic-application" />
+              <Stack.Screen name="professional/dentist-application" />
+              <Stack.Screen name="professional/calendar" />
+              <Stack.Screen name="professional/manage-schedule" />
+              <Stack.Screen name="professional/team" />
+            </Stack>
+          </AuthProvider>
+        </LocaleProvider>
+      </QueryClientProvider>
+    </SafeAreaProvider>
+  )
+}

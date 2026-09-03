@@ -1,0 +1,22 @@
+appId: com.amardentist.app
+name: Phase 1 foundation and localization
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Dental care, with a clear next step."
+- assertVisible: "Create account"
+- assertVisible: "Sign in"
+- tapOn:
+    id: "Switch to Bangla"
+    optional: true
+- tapOn: "বাংলা"
+- assertVisible: "দাঁতের যত্নে পরিষ্কার পরবর্তী পদক্ষেপ।"
+- tapOn: "EN"
+- assertVisible: "Dental care, with a clear next step."
+- tapOn: "Sign in"
+- assertVisible: "Welcome back"
+- assertVisible: "Forgot password?"
+- back
+- tapOn: "Create account"
+- assertVisible: "Start as a patient"
+- assertVisible: "I agree to the Terms and Privacy Notice."

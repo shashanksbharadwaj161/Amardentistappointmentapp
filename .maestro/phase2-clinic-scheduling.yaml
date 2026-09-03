@@ -1,0 +1,24 @@
+appId: com.amardentist.app
+name: Phase 2 clinic verification and scheduling
+---
+- launchApp:
+    clearState: true
+- tapOn: "Preview app"
+- assertVisible: "YOUR CARE PATH"
+- tapOn: "Join as a dental professional"
+- assertVisible: "Professional onboarding"
+- assertVisible: "Shapla Dental Studio"
+- tapOn: "Dentist verification"
+- assertVisible: "BMDC registration number"
+- assertVisible: "Choose private document"
+- back
+- tapOn: "Register a clinic"
+- assertVisible: "Clinic license or registration"
+- assertVisible: "Submit clinic for review"
+- back
+- tapOn: "Open professional calendar"
+- assertVisible: "Calendar"
+- assertVisible: "Dental consultation"
+- tapOn: "Manage schedule"
+- assertVisible: "Weekly hours"
+- assertVisible: "Breaks and exceptions"

@@ -1,0 +1,14 @@
+appId: com.amardentist.app
+name: Phase 1 authentication shell
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Amar Dentist"
+- assertVisible: "Create account"
+- tapOn: "Sign in"
+- assertVisible: "Welcome back"
+- tapOn: "Sign in"
+- assertVisible: "Invalid email address"
+- back
+- tapOn: "Switch to Bangla"
+- assertVisible: "দাঁতের যত্নে পরিষ্কার পরবর্তী পদক্ষেপ।"

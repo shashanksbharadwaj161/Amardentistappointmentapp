@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">Amar Dentist monochrome icon</title>
+  <path
+    d="M236 632C180 412 303 206 512 206C688 206 818 344 818 516C818 566 807 610 786 650"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="48"
+    stroke-linecap="round"
+  />
+  <path
+    d="M361 370C400 321 457 327 512 354C567 327 624 321 663 370C713 434 668 517 624 585C584 648 571 758 512 758C453 758 440 648 400 585C356 517 311 434 361 370Z"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="44"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <circle cx="776" cy="692" r="48" fill="#FFFFFF"/>
+</svg>

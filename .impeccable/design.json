@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-02T07:45:00.000Z",
+  "title": "Design System: Amar Dentist",
+  "extensions": {
+    "colorMeta": {
+      "ink-navy": { "role": "primary", "displayName": "Ledger Ink", "canonical": "#142A42", "tonalRamp": ["#07121F", "#0C1C2D", "#142A42", "#25445F", "#44647E", "#71899C", "#ABBAC4", "#EDF2F4"] },
+      "pearl": { "role": "neutral", "displayName": "Pearl Field", "canonical": "#F5F8F7", "tonalRamp": ["#17201E", "#2D3936", "#51605C", "#7C8B87", "#AAB7B3", "#D4DEDB", "#EDF2F0", "#F8FBFA"] },
+      "care-mint": { "role": "secondary", "displayName": "Care Mint", "canonical": "#79D2BD", "tonalRamp": ["#08251F", "#0E3C32", "#196553", "#2F8D77", "#55B49D", "#79D2BD", "#B7E8DC", "#EDF9F6"] },
+      "route-cyan": { "role": "tertiary", "displayName": "Route Cyan", "canonical": "#5CB8CF", "tonalRamp": ["#071F27", "#0C3441", "#15566A", "#287A92", "#409CB5", "#5CB8CF", "#A6DCE8", "#EAF7FA"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Top-level patient and success moments." },
+      "headline": { "displayName": "Headline", "purpose": "Screen and major section titles." },
+      "body": { "displayName": "Body", "purpose": "English and Bangla task content." },
+      "label": { "displayName": "Label", "purpose": "Controls, fields, status, and operational metadata." }
+    },
+    "shadows": [
+      { "name": "ambient-surface", "value": "0 8px 28px rgba(12,28,45,0.10)", "purpose": "Floating map cards and sheets." },
+      { "name": "raised-control", "value": "0 3px 10px rgba(12,28,45,0.12)", "purpose": "Open menus and lifted controls." }
+    ],
+    "motion": [
+      { "name": "ease-care", "value": "cubic-bezier(0.22, 1, 0.36, 1)", "purpose": "Purposeful state and route transitions." },
+      { "name": "duration-state", "value": "180ms", "purpose": "Control and selection feedback." },
+      { "name": "duration-journey", "value": "420ms", "purpose": "One authored care-route progression moment." }
+    ],
+    "breakpoints": [
+      { "name": "compact", "value": "0px" },
+      { "name": "medium", "value": "768px" },
+      { "name": "expanded", "value": "1180px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single committed action in a task region.",
+      "html": "<button class=\"ds-btn-primary\">Confirm appointment</button>",
+      "css": ".ds-btn-primary{height:48px;padding:0 18px;border:0;border-radius:10px;background:var(--ink-navy,#142A42);color:#fff;font:650 15px system-ui;box-shadow:0 3px 10px rgba(12,28,45,.12);transition:transform 180ms,background 180ms,box-shadow 180ms}.ds-btn-primary:hover{background:#0C1C2D;transform:translateY(-1px);box-shadow:0 8px 20px rgba(12,28,45,.16)}.ds-btn-primary:focus-visible{outline:3px solid #5CB8CF;outline-offset:3px}.ds-btn-primary:active{transform:translateY(0)}"
+    },
+    {
+      "name": "Care Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Persistent-label field with explicit focus and error room.",
+      "html": "<label class=\"ds-field\"><span>Email address</span><input value=\"patient@example.com\" aria-label=\"Email address\"></label>",
+      "css": ".ds-field{display:grid;gap:7px;color:#14202B;font:650 13px system-ui}.ds-field input{height:48px;padding:0 14px;border:1px solid #DDE7E5;border-radius:10px;background:#fff;color:#14202B;font:400 16px system-ui}.ds-field input:focus-visible{outline:3px solid rgba(92,184,207,.35);outline-offset:2px;border-color:#142A42}"
+    },
+    {
+      "name": "Appointment Surface",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A grounded schedule item with identity, time, and state.",
+      "html": "<article class=\"ds-appointment\"><time>10:30 AM</time><div><strong>Routine check-up</strong><span>Amar Dental Care · Dhanmondi</span></div><b>Confirmed</b></article>",
+      "css": ".ds-appointment{display:grid;grid-template-columns:74px 1fr auto;gap:14px;align-items:center;padding:16px;border-radius:14px;background:#fff;color:#14202B;font:400 14px system-ui}.ds-appointment time{font-weight:750;color:#142A42}.ds-appointment div{display:grid;gap:4px}.ds-appointment strong{font-size:15px}.ds-appointment span{color:#5A6873}.ds-appointment b{padding:6px 9px;border-radius:999px;background:#DFF5EE;color:#126B55;font-size:12px}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Guided Care Ledger",
+    "overview": "Amar Dentist combines the quiet confidence of a carefully kept clinic register with the immediacy of a live route. Every surface shows where the user is in the care journey, what has been verified, and what happens next.",
+    "keyCharacteristics": ["Calm pearl fields with navy structure and sparing mint/cyan signals.", "Clear journey continuity from discovery through appointment to record.", "Platform-native controls with brand expressed in content surfaces.", "Compact professional density without nested cards."],
+    "rules": [
+      { "name": "Signal Rarity", "body": "Mint and cyan communicate availability, position, verification, or progress; they are never decoration.", "section": "colors" },
+      { "name": "Grounded Surface", "body": "Ordinary content stays flat; elevation describes a real layer or interaction state.", "section": "elevation" }
+    ],
+    "dos": ["Do use status words and icons alongside color.", "Do show real operational state, recovery, and authorship wherever trust is at stake."],
+    "donts": ["Don't use gradients, decorative glass, generic medical crosses, tooth mascots, or neon healthcare imagery.", "Don't build pages from repeated same-size icon cards or nest cards inside cards."]
+  }
+}

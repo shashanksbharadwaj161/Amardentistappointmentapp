@@ -1,0 +1,26 @@
+{
+  "name": "amar-dentist",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.12.0",
+  "scripts": {
+    "dev:mobile": "pnpm --filter @amar-dentist/mobile start",
+    "dev:admin": "pnpm --filter @amar-dentist/admin dev",
+    "build": "pnpm -r --if-present build",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "lint": "pnpm -r --if-present lint",
+    "test": "pnpm -r --if-present test",
+    "security:secrets": "node scripts/secret-scan.mjs",
+    "ui:audit": "node scripts/ui-audit.mjs",
+    "verify:db": "supabase db lint --local --level warning --fail-on warning && supabase test db",
+    "verify:e2e": "pnpm --filter @amar-dentist/admin test:e2e",
+    "verify:edge": "deno test --config supabase/functions/deno.json --allow-env --allow-net supabase/functions",
+    "verify:local": "pnpm lint && pnpm typecheck && pnpm test && pnpm security:secrets && pnpm ui:audit && pnpm build",
+    "verify": "pnpm verify:local && pnpm verify:e2e && pnpm verify:edge && pnpm verify:db"
+  },
+  "devDependencies": {
+    "deno": "2.9.6",
+    "supabase": "^2.116.0",
+    "typescript": "~6.0.3"
+  }
+}
