@@ -8,11 +8,11 @@ Progress is gate-weighted rather than based on file count. A phase earns its ful
 | --- | ---: | ---: | ---: |
 | 1. Foundation, authentication, and UI | 15% | 99% | 14.85% |
 | 2. Clinics, verification, and scheduling | 16% | 75% | 12.00% |
-| 3. Marketplace, booking, and appointments | 20% | 0% | 0% |
+| 3. Marketplace, booking, and appointments | 20% | 25% | 5.00% |
 | 4. Dental EHR and clinical records | 18% | 0% | 0% |
 | 5. Payments, finance, inventory, labs, and subscriptions | 18% | 0% | 0% |
 | 6. AI, administration, and production hardening | 13% | 0% | 0% |
-| **Whole app** | **100%** |  | **26.85%** |
+| **Whole app** | **100%** |  | **31.85%** |
 
 ## Current gate
 
@@ -27,3 +27,5 @@ Phase 2 has a complete local implementation for clinic/staff membership, clinic 
 - Execute both Phase 2 pgTAP suites against live PostgreSQL and resolve any semantic or RLS failures.
 - Deploy and verify the `clinic-invite` Edge Function.
 - Complete physical iOS and Android Maestro verification, including English/Bangla, large text, and reduced motion.
+
+Phase 3 is 25% complete. The first local vertical slice now includes patient/family profiles, foreground location with a privacy-preserving fallback, dark map/list discovery, approved marketplace search, deterministic ranking, trusted availability, ten-minute holds, mock deposit confirmation, receipts, QR/check-in, waitlist, cancellation/no-show/review foundations, a notification outbox, and the PostgreSQL overlap constraints. English booking and Bangla discovery passed live browser interaction. The Phase 3 migration, 49 structural pgTAP assertions, and 30 booking-behavior assertions parse as PostgreSQL; 5 shared Phase 3 unit tests pass. It remains incomplete until the migration and tests run semantically, advanced filters and actual map tiles are connected, and the remaining appointment/realtime/messaging/device flows are implemented and verified.

@@ -56,6 +56,29 @@ External checks still required:
 - Deploy and live-test the clinic invitation function.
 - Run the Phase 2 Maestro flow on physical iOS and Android devices.
 
-## Phases 3–6
+## Phase 3 — Marketplace, booking, and appointments
+
+First local slice implemented on 2026-09-03:
+
+- Patient and family/dependant profile storage and mobile management.
+- Foreground location permission with a no-location browsing fallback.
+- Original dark map/list discovery surface with approved dentist/clinic/service search and deterministic ranking.
+- Search and open-now controls; server supports specialty, price, gender, language, rating, distance, and radius filters.
+- Trusted availability and service-derived duration, price, and deposit.
+- Ten-minute booking holds, advisory slot serialization, hold and appointment exclusion constraints, idempotent mock confirmation, receipts, and availability reopening after valid cancellation.
+- QR/check-in token primitives, waitlist offers, 24-hour deposit policy, 15-minute no-show rule, reviews, chat data model, appointment history, audit events, and privacy-safe notification outbox.
+- Five shared booking-rule tests, 49 structural pgTAP assertions, 30 behavioral pgTAP assertions, and a Maestro marketplace/booking flow.
+- English discovery-to-receipt and Bangla discovery passed browser interaction; all-platform production export passed.
+
+Still required before Phase 3 closes:
+
+- Apply and semantically verify the Phase 2 and Phase 3 migrations/RLS on PostgreSQL.
+- Connect full filter controls and an actual map provider while preserving list access.
+- Complete realtime schedules, professional walk-ins, cancellation/refund UI, rescheduling, waitlist acceptance, appointment lists, QR presentation/scanning, reviews, and patient-clinic chat UI.
+- Deploy notification processing and verify failure/retry behavior.
+- Run concurrent database clients to prove exactly one booking winner.
+- Run physical iOS/Android Maestro and English/Bangla visual/accessibility gates.
+
+## Phases 4–6
 
 Pending. Each later phase must add only its own schema and preserve all prior gates. See [CONTINUATION.md](CONTINUATION.md) for the full remaining plan and exact next actions.

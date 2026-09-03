@@ -35,6 +35,9 @@ export default function RootLayout() {
               <Stack.Screen name="professional/calendar" />
               <Stack.Screen name="professional/manage-schedule" />
               <Stack.Screen name="professional/team" />
+              <Stack.Screen name="patient/discover" />
+              <Stack.Screen name="patient/dentist" />
+              <Stack.Screen name="patient/profiles" />
             </Stack>
           </AuthProvider>
         </LocaleProvider>

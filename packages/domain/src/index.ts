@@ -1,4 +1,6 @@
 export * from './availability'
+export * from './booking'
+export * from './phase3'
 export * from './i18n'
 export * from './permissions'
 export * from './phase2'

@@ -18,9 +18,9 @@ export default function DashboardScreen() {
   const professional = profile.activeMode === 'professional'
   const switchMode = (mode: AppMode) => void setMode(mode)
   const patientSteps = [
-    { label: t('completeProfile'), detail: t('completeProfileDetail'), icon: CircleUserRound },
-    { label: t('findDentist'), detail: t('discoveryPhase'), icon: MapPin },
-    { label: t('bookVisit'), detail: t('schedulingPhase'), icon: CalendarDays },
+    { label: t('completeProfile'), detail: t('completeProfileDetail'), icon: CircleUserRound, route: '/patient/profiles' as const },
+    { label: t('findDentist'), detail: t('discoveryPhase'), icon: MapPin, route: '/patient/discover' as const },
+    { label: t('bookVisit'), detail: t('schedulingPhase'), icon: CalendarDays, route: '/patient/discover' as const },
   ]
 
   return (
@@ -44,7 +44,7 @@ export default function DashboardScreen() {
         </View>
       ) : (
         <View style={styles.ledger}>
-          {patientSteps.map(({ label, detail, icon: Icon }, index) => <View key={label} style={styles.step}><View style={[styles.stepIcon, index === 0 && styles.stepIconActive]}><Icon size={20} color={index === 0 ? colors.ink : colors.teal} /></View><View style={styles.stepCopy}><Text style={styles.stepTitle}>{label}</Text><Text style={styles.stepDetail}>{detail}</Text></View><ChevronRight size={19} color={colors.muted} /></View>)}
+          {patientSteps.map(({ label, detail, icon: Icon, route }, index) => <Pressable accessibilityRole="button" onPress={() => router.push(route)} key={label} style={styles.step}><View style={[styles.stepIcon, index === 0 && styles.stepIconActive]}><Icon size={20} color={index === 0 ? colors.ink : colors.teal} /></View><View style={styles.stepCopy}><Text style={styles.stepTitle}>{label}</Text><Text style={styles.stepDetail}>{detail}</Text></View><ChevronRight size={19} color={colors.muted} /></Pressable>)}
         </View>
       )}
 

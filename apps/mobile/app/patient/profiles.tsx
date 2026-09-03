@@ -1,0 +1,28 @@
+import { PATIENT_RELATIONSHIPS, patientProfileSchema, type PatientRelationship } from '@amar-dentist/domain'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Redirect, Stack } from 'expo-router'
+import { CheckCircle2, UsersRound } from 'lucide-react-native'
+import { useState } from 'react'
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
+import { Button } from '../../src/components/Button'
+import { Field } from '../../src/components/Field'
+import { Screen } from '../../src/components/Screen'
+import { SectionCard } from '../../src/components/SectionCard'
+import { getPatientProfiles, savePatientProfile } from '../../src/lib/phase3'
+import { useAuth } from '../../src/providers/AuthProvider'
+import { useLocale } from '../../src/providers/LocaleProvider'
+import { colors, hitTarget, radius, spacing } from '../../src/theme'
+
+export default function PatientProfilesScreen() {
+  const { profile, loading } = useAuth(); const { locale, t } = useLocale(); const queryClient = useQueryClient()
+  const profiles = useQuery({ queryKey: ['patient-profiles', profile?.id], queryFn: () => getPatientProfiles(profile!.id), enabled: Boolean(profile) })
+  const [relationship, setRelationship] = useState<PatientRelationship>('self'); const [fullName, setFullName] = useState(''); const [dateOfBirth, setDateOfBirth] = useState(''); const [phone, setPhone] = useState(''); const [busy, setBusy] = useState(false); const [message, setMessage] = useState<string | null>(null)
+  if (!loading && !profile) return <Redirect href="/" />; if (!profile) return null
+  const save = async () => { const parsed = patientProfileSchema.safeParse({ relationship, fullName, dateOfBirth: dateOfBirth || null, phone }); if (!parsed.success) return setMessage(locale === 'bn' ? t('checkDetails') : parsed.error.issues[0]?.message ?? t('checkDetails')); setBusy(true); try { await savePatientProfile(parsed.data); await queryClient.invalidateQueries({ queryKey: ['patient-profiles', profile.id] }); setMessage(t('patientProfileSaved')); setFullName(''); setDateOfBirth(''); setPhone('') } catch { setMessage(t('authUnavailable')) } finally { setBusy(false) } }
+  return <Screen maxWidth={720} style={styles.screen}><Stack.Screen options={{ title: t('profileFamily'), headerBackTitle: t('back') }} /><View style={styles.heading}><UsersRound size={27} color={colors.teal} /><View style={styles.headingCopy}><Text style={styles.title}>{t('profileFamily')}</Text><Text style={styles.subtitle}>{t('profileFamilyBody')}</Text></View></View>
+    {profiles.isLoading ? <ActivityIndicator color={colors.teal} /> : <View style={styles.list}>{profiles.data?.map((patient) => <View key={patient.id} style={styles.patient}><View style={styles.patientAvatar}><Text style={styles.patientInitial}>{patient.fullName.slice(0, 1)}</Text></View><View style={styles.patientCopy}><Text style={styles.patientName}>{patient.fullName}</Text><Text style={styles.patientMeta}>{t(patient.relationship)}{patient.dateOfBirth ? ` · ${patient.dateOfBirth}` : ''}</Text></View><CheckCircle2 size={18} color={colors.success} /></View>)}</View>}
+    <SectionCard eyebrow={t('addFamilyMember').toUpperCase()} title={t('savePatientProfile')}><Text style={styles.label}>{t('relationship')}</Text><View style={styles.relationships}>{PATIENT_RELATIONSHIPS.map((value) => <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: relationship === value }} style={[styles.relationship, relationship === value && styles.relationshipActive]} onPress={() => setRelationship(value)}><Text style={[styles.relationshipText, relationship === value && styles.relationshipTextActive]}>{t(value)}</Text></Pressable>)}</View><Field label={t('fullName')} value={fullName} onChangeText={setFullName} /><Field label={t('dateOfBirth')} value={dateOfBirth} onChangeText={setDateOfBirth} hint="YYYY-MM-DD" /><Field label={t('phone')} value={phone} onChangeText={setPhone} keyboardType="phone-pad" /><Button label={t('savePatientProfile')} loading={busy} onPress={() => void save()} />{message ? <Text accessibilityRole="alert" style={styles.message}>{message}</Text> : null}</SectionCard>
+  </Screen>
+}
+
+const styles = StyleSheet.create({ screen: { paddingTop: spacing.xl, gap: spacing.xl }, heading: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }, headingCopy: { flex: 1, gap: 6 }, title: { color: colors.inkDeep, fontSize: 30, fontWeight: '800', letterSpacing: -0.8 }, subtitle: { color: colors.muted, fontSize: 13, lineHeight: 20 }, list: { gap: spacing.sm }, patient: { minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md }, patientAvatar: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.mintSoft }, patientInitial: { color: colors.teal, fontWeight: '800' }, patientCopy: { flex: 1, gap: 3 }, patientName: { color: colors.ink, fontWeight: '800' }, patientMeta: { color: colors.muted, fontSize: 11 }, label: { color: colors.ink, fontSize: 12, fontWeight: '700' }, relationships: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, relationship: { minHeight: hitTarget, justifyContent: 'center', paddingHorizontal: spacing.md, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.pearl }, relationshipActive: { borderColor: colors.mint, backgroundColor: colors.mintSoft }, relationshipText: { color: colors.muted, fontSize: 11, fontWeight: '700' }, relationshipTextActive: { color: colors.teal }, message: { color: colors.teal, fontSize: 12, lineHeight: 18 } })

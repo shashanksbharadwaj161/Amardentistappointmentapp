@@ -28,6 +28,12 @@
       "expo-secure-store",
       "expo-localization",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Amar Dentist to use your location while finding nearby verified clinics."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#F5F8F7",

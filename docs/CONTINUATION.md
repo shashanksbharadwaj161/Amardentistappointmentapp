@@ -51,6 +51,7 @@ Useful primary documentation:
 - Expo Router: <https://docs.expo.dev/router/introduction/>
 - Expo DocumentPicker SDK 57: <https://docs.expo.dev/versions/v57.0.0/sdk/document-picker/>
 - Expo ImagePicker SDK 57: <https://docs.expo.dev/versions/v57.0.0/sdk/imagepicker/>
+- Expo Location SDK 57: <https://docs.expo.dev/versions/v57.0.0/sdk/location/>
 - Supabase database migrations: <https://supabase.com/docs/guides/deployment/database-migrations>
 - Supabase Row Level Security: <https://supabase.com/docs/guides/database/postgres/row-level-security>
 - Supabase Storage access control: <https://supabase.com/docs/guides/storage/security/access-control>
@@ -119,18 +120,18 @@ Use pnpm 9.12.0. Do not introduce another package manager or duplicate lockfile.
 
 ## 5. Current implementation status
 
-Gate-weighted whole-app completion: **26.85%**.
+Gate-weighted whole-app completion: **31.85%**.
 
 | Phase | Weight | Completion | Earned overall |
 | --- | ---: | ---: | ---: |
 | 1 — Foundation/auth/UI | 15% | 99% | 14.85% |
 | 2 — Clinics/verification/scheduling | 16% | 75% | 12.00% |
-| 3 — Marketplace/booking/appointments | 20% | 0% | 0% |
+| 3 — Marketplace/booking/appointments | 20% | 25% | 5.00% |
 | 4 — Dental EHR/clinical records | 18% | 0% | 0% |
 | 5 — Payments/finance/inventory/labs/subscriptions | 18% | 0% | 0% |
 | 6 — AI/admin completion/production hardening | 13% | 0% | 0% |
 
-These numbers are gate-weighted, not based on file count. Phase 2 does not receive full credit until live migration/RLS and physical-device checks pass.
+These numbers are gate-weighted, not based on file count. Phases 2 and 3 do not receive full credit until live migration/RLS and physical-device checks pass.
 
 ### Phase 1 implemented
 
@@ -191,6 +192,29 @@ Edge Functions:
 - `supabase/functions/admin-invite` — Phase 1 invitation delivery and fail-closed activation.
 - `supabase/functions/clinic-invite` — Phase 2 scoped staff invitation; existing-account and new-account paths; revocation and auth-user cleanup on failure.
 
+### Phase 3 first slice implemented locally
+
+Database migration: `supabase/migrations/202609030003_phase3_marketplace_booking.sql`
+
+- Patient/family profiles, protected holds, active appointment exclusion, mock payment ledger, appointment history, single-use check-in tokens, waitlist, verified reviews, chat tables, and notification outbox.
+- Approved-only marketplace RPC with specialty, gender, language, price, rating, radius, and distance filters.
+- Shared availability now removes active appointments and unexpired holds.
+- Slot booking uses a ten-minute server hold, service-derived financial/duration values, advisory transaction locks, hold exclusion, and appointment exclusion.
+- Mock confirmation is idempotent; cancellation implements the 24-hour rule; QR redemption is single-use; waitlist offers expire after 15 minutes; no-show cannot be recorded before 15 minutes.
+- `supabase/tests/phase3_structure.test.sql` contains 49 assertions.
+- `supabase/tests/phase3_booking_behavior.test.sql` contains 30 assertions including trusted pricing, overlap rejection, idempotency, cancellation reopening, QR replay resistance, RLS, and auditing.
+
+Shared/mobile:
+
+- `packages/domain/src/phase3.ts`, `booking.ts`, and `phase3.test.ts` define and test patient, marketplace, hold, cancellation, no-show, waitlist, and ranking rules.
+- `apps/mobile/app/patient/discover.tsx` provides dark map/list discovery, search/open-now interaction, foreground location, and accessible dentist cards.
+- `apps/mobile/app/patient/dentist.tsx` provides patient selection, server availability, protected hold, trusted mock deposit, confirmation, and receipt.
+- `apps/mobile/app/patient/profiles.tsx` manages self and family profiles.
+- `apps/mobile/src/lib/phase3.ts` connects Supabase RPCs and deterministic preview fixtures.
+- `.maestro/phase3-marketplace-booking.yaml` covers the patient preview journey.
+
+Verified in-browser: the complete English discovery-to-receipt flow and Bangla discovery. The map is currently an original interactive visual canvas, not a production street-map provider. Full filters are supported at the RPC/schema layer but only search and open-now are exposed in the first UI slice.
+
 ## 6. Verified evidence at this checkpoint
 
 Successful on 2026-09-03:
@@ -198,7 +222,7 @@ Successful on 2026-09-03:
 - `pnpm verify:local`
   - lint passed across shared, mobile, and Admin.
   - strict TypeScript passed across shared, mobile, and Admin.
-  - 9 shared tests passed.
+  - 14 shared tests passed, including 5 Phase 3 booking tests.
   - 6 mobile component/link tests passed.
   - 2 Admin tests passed.
   - secret scan passed across 138 files.
@@ -208,6 +232,7 @@ Successful on 2026-09-03:
 - `pnpm verify:edge` — 16 Edge Function tests passed, 8 per invitation function.
 - `pnpm verify:e2e` — 5 Playwright tests passed across desktop and mobile Chromium; one desktop-only mobile-navigation test was intentionally skipped.
 - Phase 2 migration and pgTAP files were syntactically parsed as PostgreSQL using `pglast`: 86 migration statements, 75 access-test statements, and 40 structure-test statements.
+- Phase 3 migration and pgTAP files were syntactically parsed using `pglast`: 87 migration statements, 53 structure-test statements, and 61 behavior-test statements.
 - `git diff --check` passed.
 
 Not yet proven:
@@ -217,6 +242,7 @@ Not yet proven:
 - `clinic-invite` has not been deployed or live-tested.
 - Physical iOS/Android Maestro runs are outstanding.
 - English/Bangla large-text and reduced-motion physical visual QA is outstanding.
+- Phase 3 advanced filter controls, production map provider, realtime/walk-in/reschedule/appointment-list/chat UI, and device E2E are outstanding.
 
 Do not describe those items as passed based on syntax parsing or web preview alone.
 
@@ -251,7 +277,7 @@ Before applying the Phase 2 migration, pay special attention to:
 2. Run `.maestro/phase2-clinic-scheduling.yaml` on physical iOS and Android devices.
 3. Re-run `pnpm verify:local`, `pnpm verify:edge`, `pnpm verify:e2e`, and database tests after any fix.
 4. Mark Phase 2 100% only after pending visibility, cross-clinic isolation, and exception-driven availability are proven on live PostgreSQL and physical mobile checks pass.
-5. Begin Phase 3 in a new migration. Do not modify Phase 2 tables in place without an additive versioned migration.
+5. Continue Phase 3 from the existing additive migration. Do not edit an already-applied migration after deployment; add a corrective migration instead.
 
 Suggested commands:
 

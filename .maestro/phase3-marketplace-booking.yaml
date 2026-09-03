@@ -1,0 +1,22 @@
+appId: com.amardentist.app
+---
+- launchApp:
+    clearState: true
+- tapOn: "Preview app"
+- assertVisible: "YOUR CARE PATH"
+- tapOn: "Find a verified dentist"
+- assertVisible: "Find dental care"
+- assertVisible: "NEARBY CARE"
+- tapOn: "Shapla Dental Studio"
+- assertVisible: "Dr. Ayesha Rahman"
+- assertVisible: "Choose a time"
+- tapOn:
+    text: ".*Preview Patient.*"
+- tapOn:
+    text: ".*Sat.*|.*Sun.*|.*Mon.*|.*Tue.*|.*Wed.*|.*Thu.*|.*Fri.*"
+    index: 0
+- tapOn: "Hold this time"
+- assertVisible: "Your time is protected for 10 minutes"
+- tapOn: "Confirm mock deposit"
+- assertVisible: "Appointment confirmed"
+- assertVisible: "Receipt"
