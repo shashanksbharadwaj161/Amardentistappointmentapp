@@ -97,6 +97,23 @@ External checks still required:
 - Run physical iOS/Android Maestro, file upload/download, large-text, and reduced-motion checks.
 - Complete practicing-dentist validation of clinical terminology, FDI entry, prescription output, and consent copy.
 
-## Phases 5–6
+## Phase 5 — Payments, finance, inventory, labs, and subscriptions
 
-Pending. Each later phase must add only its own schema and preserve all prior gates. See [CONTINUATION.md](CONTINUATION.md) for the full remaining plan and exact next actions.
+Implemented locally:
+
+- Trusted bKash/Nagad checkout preparation, signed idempotent callbacks, provider-confirmed refunds, invoices, commission, clinic ledger, payouts, expenses, and reconciliation.
+- Lot/expiry stock, atomic movements with negative-stock rejection, suppliers, purchase orders and receiving, lab vendors/cases/workflow/private attachments, and treatment-consumption references.
+- RevenueCat SDK purchase/restore wiring plus signed idempotent subscription synchronization and Super Admin-configurable plans/entitlements.
+- English/Bangla patient payments and professional business operations, plus responsive Super Admin revenue controls.
+- 61 structural and 26 behavioral pgTAP assertions, 6 shared rules tests, 3 mobile data tests, 18 payment/subscription Edge tests, and a Phase 5 Maestro flow.
+
+External checks still required:
+
+- Apply the Phase 5 migration and run both pgTAP files semantically against PostgreSQL.
+- Configure/certify bKash and Nagad merchant endpoints and verify checkout, failure, replay, refund, and reconciliation callbacks.
+- Configure RevenueCat products/entitlements and verify renewal, cancellation, expiry, restoration, and quotas on physical iOS/Android devices.
+- Complete real payout-provider operations and reconciliation acceptance with pilot clinics.
+
+## Phase 6 — AI, administration completion, and production hardening
+
+Pending. It must add only its own schema and preserve all prior gates. See [CONTINUATION.md](CONTINUATION.md) for the full remaining plan and exact next actions.

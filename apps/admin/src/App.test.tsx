@@ -44,4 +44,13 @@ describe('admin access shell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
     expect(await screen.findByText('Application approved and access updated.')).toBeInTheDocument()
   })
+
+  it('opens Super Admin revenue controls without exposing provider keys', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Preview admin console' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Configuration' }))
+    expect(screen.getByRole('heading', { name: 'Plans and commission' })).toBeInTheDocument()
+    expect(screen.getByText('Clinic Pro')).toBeInTheDocument()
+    expect(screen.queryByText(/API token/i)).not.toBeInTheDocument()
+  })
 })

@@ -49,3 +49,16 @@ test('administrator can review private evidence and record a verification decisi
   await page.getByRole('button', { name: 'Approve' }).click()
   await expect(page.getByText('Application approved and access updated.')).toBeVisible()
 })
+
+test('Super Admin configures revenue controls without provider secrets', async ({ page }, testInfo) => {
+  await page.goto('/')
+  await page.getByRole('button', { name: 'Preview admin console' }).click()
+  if (testInfo.project.name === 'mobile-chromium') await page.getByRole('button', { name: 'Open navigation' }).click()
+  await page.getByRole('button', { name: 'Configuration' }).click()
+  await expect(page.getByRole('heading', { name: 'Plans and commission' })).toBeVisible()
+  await page.getByRole('textbox', { name: 'Rate percent' }).fill('5.5')
+  await page.getByRole('button', { name: 'Save audited rate' }).click()
+  await expect(page.getByText('Default platform commission saved and audited.')).toBeVisible()
+  await expect(page.getByText('Clinic Pro')).toBeVisible()
+  await page.screenshot({ path: `${verificationDir}admin-finance-${testInfo.project.name}.png`, fullPage: true })
+})

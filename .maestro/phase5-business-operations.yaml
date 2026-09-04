@@ -1,0 +1,16 @@
+appId: com.amardentist.app
+---
+- launchApp:
+    clearState: true
+- tapOn: "Preview app"
+- tapOn: "Professional"
+- tapOn: "Professional onboarding"
+- scrollUntilVisible:
+    element: "Business operations"
+    direction: DOWN
+- tapOn: "Business operations"
+- assertVisible: "Gross payments"
+- tapOn: "Inventory"
+- assertVisible: "Stock watch"
+- tapOn: "Laboratory"
+- assertVisible: "Lab cases"

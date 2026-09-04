@@ -59,6 +59,8 @@ Useful primary documentation:
 - Supabase Storage access control: <https://supabase.com/docs/guides/storage/security/access-control>
 - Supabase Edge Functions: <https://supabase.com/docs/guides/functions>
 - PostgreSQL exclusion constraints: <https://www.postgresql.org/docs/current/ddl-constraints.html#DDL-CONSTRAINTS-EXCLUSION>
+- RevenueCat Expo installation: <https://www.revenuecat.com/docs/getting-started/installation/expo>
+- RevenueCat webhook signing and retry guidance: <https://www.revenuecat.com/docs/integrations/webhooks>
 
 ## 3. Visual language and Impeccable rules
 
@@ -122,7 +124,7 @@ Use pnpm 9.12.0. Do not introduce another package manager or duplicate lockfile.
 
 ## 5. Current implementation status
 
-Gate-weighted whole-app completion: **56.35%**.
+Gate-weighted whole-app completion: **69.85%**.
 
 | Phase | Weight | Completion | Earned overall |
 | --- | ---: | ---: | ---: |
@@ -130,10 +132,10 @@ Gate-weighted whole-app completion: **56.35%**.
 | 2 — Clinics/verification/scheduling | 16% | 75% | 12.00% |
 | 3 — Marketplace/booking/appointments | 20% | 80% | 16.00% |
 | 4 — Dental EHR/clinical records | 18% | 75% | 13.50% |
-| 5 — Payments/finance/inventory/labs/subscriptions | 18% | 0% | 0% |
+| 5 — Payments/finance/inventory/labs/subscriptions | 18% | 75% | 13.50% |
 | 6 — AI/admin completion/production hardening | 13% | 0% | 0% |
 
-These numbers are gate-weighted, not based on file count. Phases 2–4 do not receive full credit until live migration/RLS and physical-device checks pass.
+These numbers are gate-weighted, not based on file count. Phases 2–5 do not receive full credit until live migration/RLS and physical-device checks pass.
 
 ### Phase 1 implemented
 
@@ -238,6 +240,20 @@ Verified in-browser at compact and tablet widths: English and Bangla review, wai
 - `supabase/functions/generate-prescription` builds a server-side PDF, stores it privately, registers the path through caller authorization, and returns a five-minute signed URL. Six Edge Function tests pass.
 - English browser QA passed at 320px and 730px without overflow for records and consent. Physical English/Bangla/device/file-picker tests remain outstanding.
 
+### Phase 5 operational and revenue slice implemented locally
+
+- `supabase/migrations/202609040009_phase5_finance_operations.sql` adds payments, signed-event stores, refunds, invoices/items, expenses, commission/payable ledgers, payouts, suppliers, purchase orders/receipts, lot/expiry inventory, atomic movements, lab vendors/cases/events/private attachments, subscription plans/subscriptions, and guarded RPCs.
+- Trusted checkout preparation derives the deposit from the appointment row. Provider callbacks are HMAC-verified and database-idempotent; confirmed payments write gross/commission ledger entries exactly once. Refund preparation checks role, status, prior refunds, amount, and idempotency before a provider request.
+- `supabase/functions/payment-checkout`, `payment-webhook`, and `payment-refund` provide configurable bKash/Nagad server adapters. Provider secrets remain server-only. `revenuecat-webhook` verifies both its authorization token and the timestamped raw-body HMAC in constant time, rejects signatures older than five minutes, and synchronizes renewal/cancellation/expiry events idempotently.
+- `apps/mobile/app/patient/payments.tsx` shows trusted deposit checkout, provider-confirmed history, RevenueCat offerings, purchase, and restoration. `react-native-purchases` is dynamically loaded only on native platforms and uses public platform SDK keys.
+- `apps/mobile/app/professional/business.tsx` provides clinic-scoped 30-day finance, expenses, commission/payables, stock/reorder/expiry, lab workflow, and plan status at compact and split widths.
+- `apps/admin/src/components/FinanceConfiguration.tsx` adds Super Admin-only audited commission controls and masked/server-only subscription configuration context. No provider secret is displayed or accepted in the browser.
+- `packages/domain/src/phase5.ts` centralizes validated finance/inventory/lab inputs and pure invoice, commission, and stock rules.
+- `supabase/tests/phase5_structure.test.sql` has 61 assertions; `phase5_finance_behavior.test.sql` has 26 assertions covering trusted amounts, cross-user denial, idempotent callbacks, exact ledger reconciliation, subscription replay, atomic stock, negative-stock rejection, expense reporting, and refund replay.
+- `.maestro/phase5-business-operations.yaml` covers the professional finance/inventory/lab preview. English and Bangla browser QA passed at 320px and 730px without horizontal overflow for professional business operations; the patient payment/subscription surface passed at 320px.
+
+Phase 5 remains externally gated on hosted migration/semantic pgTAP, certified merchant endpoints and credentials, real callback/refund/reconciliation exercises, RevenueCat/App Store/Play Store product setup, physical purchase/restore testing, and pilot payout acceptance. Do not describe configurable adapters as provider-certified until those checks pass.
+
 ## 6. Verified evidence at this checkpoint
 
 Successful on 2026-09-04:
@@ -245,20 +261,22 @@ Successful on 2026-09-04:
 - `pnpm verify:local`
   - lint passed across shared, mobile, and Admin.
   - strict TypeScript passed across shared, mobile, and Admin.
-  - 20 shared tests passed, including 6 Phase 3 booking tests and 5 Phase 4 clinical-validation tests.
-  - 9 mobile component/link/clinical-data tests passed.
-  - 2 Admin tests passed.
-  - secret scan passed across 164 files.
+  - 26 shared tests passed, including 6 Phase 5 finance/inventory rule tests.
+  - 12 mobile component/link/clinical/operations tests passed.
+  - 3 Admin tests passed, including Super Admin revenue controls.
+  - secret scan passed across 204 files.
   - UI audit returned zero findings.
   - Admin production build passed.
   - Expo production export passed for web, iOS, and Android.
-- `pnpm verify:edge` — 22 Edge Function tests passed: 16 invitation tests and 6 private prescription-document tests.
-- `pnpm verify:e2e` — 5 Playwright tests passed across desktop and mobile Chromium; one desktop-only mobile-navigation test was intentionally skipped.
+- `pnpm verify:edge` — 40 Edge Function tests passed: 16 invitation, 6 private prescription-document, and 18 payment/subscription tests.
+- `pnpm verify:e2e` — 7 Playwright tests passed across desktop and mobile Chromium, including revenue controls; one desktop-only mobile-navigation test was intentionally skipped.
 - Phase 2 migration and pgTAP files were syntactically parsed as PostgreSQL using `pglast`: 86 migration statements, 75 access-test statements, and 40 structure-test statements.
 - Phase 3 migrations and pgTAP files were syntactically parsed using `pglast`: 87 core-migration statements, 9 experience-migration statements, 8 reschedule/waitlist statements, 12 clinic-operations statements, 5 waitlist-expiry statements, 68 structure-test statements, and 141 behavior-test statements. This remains syntax evidence, not semantic database proof.
 - `git diff --check` passed.
 - Phase 4 migration and pgTAP files parsed as PostgreSQL: 101 migration statements, 55 structure-test statements, and 111 behavior-test statements. This is syntax evidence, not semantic database proof.
 - Phase 4 browser QA passed at 320px and 730px for patient records and consent without horizontal overflow; the consent controls expose explicit radio and checkbox semantics.
+- Phase 5 migration and its 87 pgTAP assertions parse as PostgreSQL. This is syntax evidence, not semantic database proof.
+- Phase 5 professional finance/inventory/lab QA passed in English and Bangla at 320px and 730px with no horizontal overflow; patient payment/subscription QA passed at 320px.
 
 Not yet proven:
 
@@ -270,6 +288,7 @@ Not yet proven:
 - Phase 4 migration/RLS, private Storage, and prescription PDF delivery have not been deployed or semantically verified on the hosted project.
 - Phase 4 physical-device file handling and clinical validation are outstanding.
 - Phase 3 production map provider, notification processing, live migration/RLS proof, physical QR-camera verification, and device E2E are outstanding.
+- Phase 5 live migration/RLS, real provider certification and callbacks, RevenueCat/store configuration, physical purchases/restores, and real payout reconciliation are outstanding.
 
 Do not describe those items as passed based on syntax parsing or web preview alone.
 
@@ -290,6 +309,9 @@ Preferred safe resolution, in order:
 7. Apply the Phase 3 migrations in order: `202609030003_phase3_marketplace_booking.sql`, `202609030004_phase3_appointment_experience.sql`, `202609030005_phase3_reschedule_waitlist.sql`, `202609040006_phase3_clinic_operations.sql`, then `202609040007_phase3_waitlist_expiry.sql`.
 8. Run both Phase 3 pgTAP files against the actual project, including the concurrent-booking and waitlist-hold cases.
 9. Record proof in `docs/PROGRESS.md`; never paste tokens, email addresses, or passwords into the repository.
+10. Apply `202609040008_phase4_clinical_foundation.sql`; run both Phase 4 pgTAP files; deploy and verify `generate-prescription` plus private Storage.
+11. Apply `202609040009_phase5_finance_operations.sql`; run both Phase 5 pgTAP files; deploy payment and RevenueCat functions only after their server secrets are configured.
+12. Use payment-provider sandbox accounts to verify create, failure, replay, refund, reconciliation, and timing behavior. Then configure RevenueCat/store products and run purchase/renew/cancel/expire/restore on physical iOS and Android.
 
 Before applying the Phase 2 migration, pay special attention to:
 
