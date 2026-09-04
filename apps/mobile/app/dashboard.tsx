@@ -1,5 +1,5 @@
 import { availableModes, type AppMode } from '@amar-dentist/domain'
-import { CalendarDays, ChevronRight, CircleUserRound, Home, MapPin, Stethoscope } from 'lucide-react-native'
+import { CalendarDays, ChevronRight, CircleUserRound, ClipboardList, Home, MapPin, Stethoscope } from 'lucide-react-native'
 import { Redirect, router } from 'expo-router'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { BrandMark } from '../src/components/BrandMark'
@@ -21,6 +21,7 @@ export default function DashboardScreen() {
     { label: t('completeProfile'), detail: t('completeProfileDetail'), icon: CircleUserRound, route: '/patient/profiles' as const },
     { label: t('findDentist'), detail: t('discoveryPhase'), icon: MapPin, route: '/patient/discover' as const },
     { label: t('bookVisit'), detail: t('schedulingPhase'), icon: CalendarDays, route: '/patient/discover' as const },
+    { label: t('medicalRecords'), detail: t('recordsPrivacy'), icon: ClipboardList, route: '/patient/records' as const },
   ]
 
   return (

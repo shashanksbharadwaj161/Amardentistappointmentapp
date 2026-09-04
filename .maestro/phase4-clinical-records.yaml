@@ -1,0 +1,23 @@
+appId: com.amardentist.app
+name: Phase 4 clinician and patient records
+---
+- launchApp:
+    clearState: true
+- tapOn: "Preview app"
+- assertVisible: "YOUR CARE PATH"
+- tapOn: "Dental records"
+- assertVisible: "Only finalized records are shown here"
+- assertVisible: "Medical history"
+- assertVisible: "Allergies"
+- assertVisible: "Finalized visits"
+- tapOn: "Manage record sharing"
+- assertVisible: "Record sharing consent"
+- back
+- back
+- tapOn: "Join as a dental professional"
+- tapOn: "Clinic operations"
+- tapOn: "Open clinical record"
+- assertVisible: "Structured clinical note"
+- assertVisible: "FDI odontogram"
+- assertVisible: "Review each medicine"
+- assertVisible: "Clinical images and X-rays"

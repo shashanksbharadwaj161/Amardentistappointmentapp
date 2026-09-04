@@ -81,6 +81,22 @@ Still required before Phase 3 closes:
 - Run concurrent database clients to prove exactly one booking winner.
 - Run physical iOS/Android Maestro and English/Bangla visual/accessibility gates.
 
-## Phases 4–6
+## Phase 4 — Dental EHR and clinical records
+
+Implemented locally:
+
+- Medical history, allergies, versioned bilingual consent, encounters, progress notes, diagnoses, adult/primary FDI odontograms, treatment plans, photographs/X-rays, structured prescriptions, and private prescription PDFs.
+- Verified treating-dentist boundaries, finalized-only patient visibility, consent-gated cross-clinic reads, audited Super Admin snapshots, RPC-only mutations, immutable finalized records, and before/after versions.
+- Responsive English/Bangla clinician and patient record surfaces, private signed media downloads, and atomic appointment completion on encounter finalization.
+- 51 structural and 43 behavioral pgTAP assertions, 8 shared/mobile clinical tests, 6 prescription Edge Function tests, and a Phase 4 Maestro flow.
+
+External checks still required:
+
+- Apply the Phase 4 migration and execute both pgTAP suites semantically against PostgreSQL.
+- Deploy and live-test the prescription document function and private Storage policies.
+- Run physical iOS/Android Maestro, file upload/download, large-text, and reduced-motion checks.
+- Complete practicing-dentist validation of clinical terminology, FDI entry, prescription output, and consent copy.
+
+## Phases 5–6
 
 Pending. Each later phase must add only its own schema and preserve all prior gates. See [CONTINUATION.md](CONTINUATION.md) for the full remaining plan and exact next actions.

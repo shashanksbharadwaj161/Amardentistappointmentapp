@@ -122,18 +122,18 @@ Use pnpm 9.12.0. Do not introduce another package manager or duplicate lockfile.
 
 ## 5. Current implementation status
 
-Gate-weighted whole-app completion: **42.85%**.
+Gate-weighted whole-app completion: **56.35%**.
 
 | Phase | Weight | Completion | Earned overall |
 | --- | ---: | ---: | ---: |
 | 1 — Foundation/auth/UI | 15% | 99% | 14.85% |
 | 2 — Clinics/verification/scheduling | 16% | 75% | 12.00% |
-| 3 — Marketplace/booking/appointments | 20% | 75% | 15.00% |
-| 4 — Dental EHR/clinical records | 18% | 0% | 0% |
+| 3 — Marketplace/booking/appointments | 20% | 80% | 16.00% |
+| 4 — Dental EHR/clinical records | 18% | 75% | 13.50% |
 | 5 — Payments/finance/inventory/labs/subscriptions | 18% | 0% | 0% |
 | 6 — AI/admin completion/production hardening | 13% | 0% | 0% |
 
-These numbers are gate-weighted, not based on file count. Phases 2 and 3 do not receive full credit until live migration/RLS and physical-device checks pass.
+These numbers are gate-weighted, not based on file count. Phases 2–4 do not receive full credit until live migration/RLS and physical-device checks pass.
 
 ### Phase 1 implemented
 
@@ -228,6 +228,16 @@ Shared/mobile:
 
 Verified in-browser at compact and tablet widths: English and Bangla review, waitlist acceptance, clinic schedule actions, guest walk-in creation, check-in fallback, and clinic inbox/thread entry, in addition to the prior discovery, booking, cancellation, and messaging flows. No horizontal overflow or runtime errors were found. The map remains an original interactive visual canvas, not a production street-map provider.
 
+### Phase 4 clinical slice implemented locally
+
+- `supabase/migrations/202609040008_phase4_clinical_foundation.sql` adds thirteen clinical/consent/version tables, private clinical-media and prescription buckets, guarded RPCs, immutable finalization, version capture, and clinical RLS.
+- `supabase/tests/phase4_structure.test.sql` contains 51 structural assertions; `phase4_access_behavior.test.sql` contains 43 behavioral/RLS assertions.
+- `packages/domain/src/phase4.ts` provides validated clinical inputs and adult/primary FDI rules; five Phase 4 shared tests pass.
+- `apps/mobile/app/professional/encounter.tsx` connects a checked-in appointment to structured notes, diagnoses, FDI observations, prescriptions, treatment plans, private files, and atomic finalization/completion.
+- `apps/mobile/app/patient/records.tsx` and `patient/consent.tsx` provide history/allergy maintenance, finalized record viewing, short-lived private downloads, and explicit versioned consent/revocation.
+- `supabase/functions/generate-prescription` builds a server-side PDF, stores it privately, registers the path through caller authorization, and returns a five-minute signed URL. Six Edge Function tests pass.
+- English browser QA passed at 320px and 730px without overflow for records and consent. Physical English/Bangla/device/file-picker tests remain outstanding.
+
 ## 6. Verified evidence at this checkpoint
 
 Successful on 2026-09-04:
@@ -235,18 +245,20 @@ Successful on 2026-09-04:
 - `pnpm verify:local`
   - lint passed across shared, mobile, and Admin.
   - strict TypeScript passed across shared, mobile, and Admin.
-  - 15 shared tests passed, including 6 Phase 3 booking tests.
-  - 6 mobile component/link tests passed.
+  - 20 shared tests passed, including 6 Phase 3 booking tests and 5 Phase 4 clinical-validation tests.
+  - 9 mobile component/link/clinical-data tests passed.
   - 2 Admin tests passed.
   - secret scan passed across 164 files.
   - UI audit returned zero findings.
   - Admin production build passed.
   - Expo production export passed for web, iOS, and Android.
-- `pnpm verify:edge` — 16 Edge Function tests passed, 8 per invitation function.
+- `pnpm verify:edge` — 22 Edge Function tests passed: 16 invitation tests and 6 private prescription-document tests.
 - `pnpm verify:e2e` — 5 Playwright tests passed across desktop and mobile Chromium; one desktop-only mobile-navigation test was intentionally skipped.
 - Phase 2 migration and pgTAP files were syntactically parsed as PostgreSQL using `pglast`: 86 migration statements, 75 access-test statements, and 40 structure-test statements.
 - Phase 3 migrations and pgTAP files were syntactically parsed using `pglast`: 87 core-migration statements, 9 experience-migration statements, 8 reschedule/waitlist statements, 12 clinic-operations statements, 5 waitlist-expiry statements, 68 structure-test statements, and 141 behavior-test statements. This remains syntax evidence, not semantic database proof.
 - `git diff --check` passed.
+- Phase 4 migration and pgTAP files parsed as PostgreSQL: 101 migration statements, 55 structure-test statements, and 111 behavior-test statements. This is syntax evidence, not semantic database proof.
+- Phase 4 browser QA passed at 320px and 730px for patient records and consent without horizontal overflow; the consent controls expose explicit radio and checkbox semantics.
 
 Not yet proven:
 
@@ -255,6 +267,8 @@ Not yet proven:
 - `clinic-invite` has not been deployed or live-tested.
 - Physical iOS/Android Maestro runs are outstanding.
 - English/Bangla large-text and reduced-motion physical visual QA is outstanding.
+- Phase 4 migration/RLS, private Storage, and prescription PDF delivery have not been deployed or semantically verified on the hosted project.
+- Phase 4 physical-device file handling and clinical validation are outstanding.
 - Phase 3 production map provider, notification processing, live migration/RLS proof, physical QR-camera verification, and device E2E are outstanding.
 
 Do not describe those items as passed based on syntax parsing or web preview alone.
@@ -295,7 +309,9 @@ Before applying the Phase 2 migration, pay special attention to:
 5. Deploy notification processing and verify idempotent retry/failure handling.
 6. Select and integrate a production map provider only when its credential and billing constraints are confirmed; preserve the accessible list and location-denied fallback.
 7. Run physical QR-camera and all Phase 3 Maestro flows on iOS and Android.
-8. Do not edit an already-applied migration after deployment; add a corrective migration instead.
+8. Apply and semantically verify `202609040008_phase4_clinical_foundation.sql`, its two pgTAP suites, and the `generate-prescription` Edge Function.
+9. Run the Phase 4 Maestro flow and clinical file upload/download on physical iOS and Android.
+10. Do not edit an already-applied migration after deployment; add a corrective migration instead.
 
 Suggested commands:
 
