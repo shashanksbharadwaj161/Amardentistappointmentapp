@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { canMarkNoShow, cancellationDisposition, holdExpiresAt, rankMarketplace, waitlistOfferExpiresAt } from './booking'
-import { bookingHoldSchema, marketplaceFilterSchema, patientProfileSchema, waitlistRequestSchema, type MarketplaceDentist } from './phase3'
+import { bookingHoldSchema, guestWalkInSchema, marketplaceFilterSchema, patientProfileSchema, reviewSchema, waitlistRequestSchema, type MarketplaceDentist } from './phase3'
 
 const now = new Date('2026-09-03T10:00:00.000Z')
 
@@ -27,6 +27,14 @@ describe('Phase 3 booking rules', () => {
     expect(marketplaceFilterSchema.safeParse({ latitude: 23.8, longitude: null }).success).toBe(false)
     expect(bookingHoldSchema.safeParse({ patientProfileId: crypto.randomUUID(), serviceId: crypto.randomUUID(), dentistId: crypto.randomUUID(), startAt: '2026-09-04T10:00:00+06:00' }).success).toBe(true)
     expect(waitlistRequestSchema.safeParse({ patientProfileId: crypto.randomUUID(), clinicId: crypto.randomUUID(), serviceId: crypto.randomUUID(), preferredDate: '2026-09-04', earliestTime: '15:00', latestTime: '09:00' }).success).toBe(false)
+  })
+
+  it('validates review and clinic-managed walk-in inputs at the shared boundary', () => {
+    const appointmentId = crypto.randomUUID()
+    expect(reviewSchema.safeParse({ appointmentId, rating: 5, comment: 'Clear explanation' }).success).toBe(true)
+    expect(reviewSchema.safeParse({ appointmentId, rating: 0, comment: '' }).success).toBe(false)
+    expect(guestWalkInSchema.safeParse({ clinicId: crypto.randomUUID(), dentistId: crypto.randomUUID(), serviceId: crypto.randomUUID(), fullName: 'Guest Patient', phone: '01700000000', startAt: '2026-09-04T10:00:00+06:00' }).success).toBe(true)
+    expect(guestWalkInSchema.safeParse({ clinicId: crypto.randomUUID(), dentistId: crypto.randomUUID(), serviceId: crypto.randomUUID(), fullName: 'G', phone: '12', startAt: 'not-a-date' }).success).toBe(false)
   })
 
   it('ranks strong nearby availability without hiding unrated clinics', () => {

@@ -1,5 +1,5 @@
 begin;
-select plan(56);
+select plan(64);
 
 select has_table('public', 'patient_profiles', 'patient and dependent profiles exist');
 select has_table('public', 'appointment_holds', 'server booking holds exist');
@@ -43,7 +43,14 @@ select has_function('public', 'get_or_create_chat_thread', 'patient clinic threa
 select has_function('public', 'send_chat_message', 'participant-only chat send RPC exists');
 select has_function('public', 'reschedule_appointment', 'atomic reschedule RPC exists');
 select has_function('public', 'confirm_waitlist_offer', 'waitlist confirmation RPC exists');
+select has_function('public', 'expire_waitlist_offers', 'expired waitlist offers have a committed cleanup RPC');
+select has_function('public', 'create_guest_walk_in_appointment', 'clinic-scoped guest walk-in RPC exists');
+select has_function('public', 'list_clinic_appointments', 'authorized clinic schedule RPC exists');
+select has_function('public', 'list_clinic_waitlist', 'authorized clinic waitlist RPC exists');
+select has_function('public', 'list_clinic_chat_threads', 'authorized clinic inbox RPC exists');
 select has_column('public', 'waitlist_entries', 'offer_hold_id', 'waitlist offers retain their protected hold');
+select has_column('public', 'patient_profiles', 'managed_by_clinic_id', 'guest profiles retain their clinic boundary');
+select has_column('public', 'patient_profiles', 'created_by', 'guest profile authorship is retained');
 
 select policies_are('public', 'patient_profiles', array['patient_profiles_read_owner']);
 select policies_are('public', 'appointment_holds', array['appointment_holds_read_scoped']);
@@ -59,6 +66,7 @@ select policies_are('public', 'notification_outbox', array['notifications_read_r
 
 select has_constraint('public', 'appointment_holds', 'no_overlapping_active_holds', 'active holds have a database exclusion constraint');
 select has_constraint('public', 'appointments', 'no_overlapping_appointments', 'active appointments have a database exclusion constraint');
+select has_constraint('public', 'patient_profiles', 'patient_profile_ownership_scope', 'a patient profile has exactly one ownership boundary');
 select ok(not has_table_privilege('authenticated', 'public.appointments', 'INSERT'), 'clients cannot insert appointments directly');
 select ok(not has_table_privilege('authenticated', 'public.payment_transactions', 'INSERT'), 'clients cannot forge payment rows');
 

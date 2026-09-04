@@ -1,5 +1,5 @@
 begin;
-select plan(51);
+select plan(61);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_user_meta_data)
 values
@@ -233,6 +233,75 @@ set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000004';
 set local "request.jwt.claim.role" = 'authenticated';
 select lives_ok($$select * from public.confirm_waitlist_offer(current_setting('test.waitlist')::uuid,'waitlist-confirmation-0001')$$, 'the offered patient confirms through the reserved hold');
 select results_eq($$select status::text from public.waitlist_entries where id=current_setting('test.waitlist')::uuid$$, $$values ('booked'::text)$$, 'confirmed waitlist offer becomes booked');
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000005';
+set local "request.jwt.claim.role" = 'authenticated';
+select ok(length(set_config('test.guest_walk_in', (select appointment_id from public.create_guest_walk_in_appointment(
+  '31000000-0000-4000-8000-000000000001', 'Guest Walk-in', '01700000006',
+  '32000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000002',
+  clock_timestamp() + interval '4 hours'))::text, true)) = 36, 'front desk atomically creates a clinic-managed guest and walk-in');
+select results_eq(
+  $$select count(*)::bigint from public.patient_profiles where managed_by_clinic_id='31000000-0000-4000-8000-000000000001' and account_owner_id is null and created_by='30000000-0000-4000-8000-000000000005'$$,
+  $$values (1::bigint)$$,
+  'guest identity is clinic-scoped rather than attached to a staff account'
+);
+select results_eq(
+  $$select count(*)::bigint from public.list_clinic_appointments('31000000-0000-4000-8000-000000000001', clock_timestamp(), clock_timestamp() + interval '1 day') where appointment_id=current_setting('test.guest_walk_in')::uuid and patient_name='Guest Walk-in'$$,
+  $$values (1::bigint)$$,
+  'authorized clinic schedule returns the guest walk-in with minimal identity'
+);
+select results_eq(
+  $$select count(*)::bigint from public.list_clinic_chat_threads('31000000-0000-4000-8000-000000000001') where thread_id=current_setting('test.chat_thread')::uuid$$,
+  $$values (1::bigint)$$,
+  'authorized clinic inbox returns the existing patient thread'
+);
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000004';
+set local "request.jwt.claim.role" = 'authenticated';
+select lives_ok($$select public.join_waitlist(
+  (select id from public.patient_profiles where account_owner_id='30000000-0000-4000-8000-000000000004'),
+  '31000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002',
+  '32000000-0000-4000-8000-000000000001',current_date + 8,'09:00','11:00')$$,
+  'patient can keep a second dated request waiting'
+);
+
+reset role;
+update public.waitlist_entries
+set status='offered', offer_expires_at=clock_timestamp() - interval '1 second'
+where requested_by='30000000-0000-4000-8000-000000000004' and preferred_date=current_date + 8;
+
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000004';
+set local "request.jwt.claim.role" = 'authenticated';
+select results_eq($$select public.expire_waitlist_offers()$$, $$values (1)$$, 'expired waitlist cleanup commits without raising');
+select results_eq(
+  $$select status::text from public.waitlist_entries where requested_by='30000000-0000-4000-8000-000000000004' and preferred_date=current_date + 8$$,
+  $$values ('expired'::text)$$,
+  'expired waitlist offer no longer remains actionable'
+);
+select throws_ok(
+  $$select * from public.list_clinic_appointments('31000000-0000-4000-8000-000000000001', clock_timestamp(), clock_timestamp() + interval '1 day')$$,
+  '42501', 'CLINIC_SCHEDULE_DENIED', 'an unrelated patient cannot call the clinic schedule RPC'
+);
+select results_eq(
+  $$select count(*)::bigint from public.patient_profiles where managed_by_clinic_id='31000000-0000-4000-8000-000000000001'$$,
+  $$values (0::bigint)$$,
+  'an unrelated patient cannot read a clinic-managed guest profile'
+);
+
+reset role;
+set local role authenticated;
+set local "request.jwt.claim.sub" = '30000000-0000-4000-8000-000000000005';
+set local "request.jwt.claim.role" = 'authenticated';
+select results_eq(
+  $$select count(*)::bigint from public.list_clinic_waitlist('31000000-0000-4000-8000-000000000001') where waitlist_status='waiting'$$,
+  $$values (1::bigint)$$,
+  'authorized clinic waitlist returns the next waiting patient'
+);
 
 reset role;
 select results_eq(

@@ -64,11 +64,21 @@ export const reviewSchema = z.object({
   comment: z.string().trim().max(1200).default(''),
 })
 
+export const guestWalkInSchema = z.object({
+  clinicId: z.uuid(),
+  dentistId: z.uuid(),
+  serviceId: z.uuid(),
+  fullName: z.string().trim().min(2).max(120),
+  phone: z.string().trim().min(7).max(24).or(z.literal('')).default(''),
+  startAt: z.iso.datetime({ offset: true }),
+})
+
 export type PatientProfileInput = z.infer<typeof patientProfileSchema>
 export type MarketplaceFilter = z.infer<typeof marketplaceFilterSchema>
 export type BookingHoldInput = z.infer<typeof bookingHoldSchema>
 export type WaitlistRequestInput = z.infer<typeof waitlistRequestSchema>
 export type ReviewInput = z.infer<typeof reviewSchema>
+export type GuestWalkInInput = z.infer<typeof guestWalkInSchema>
 
 export type MarketplaceDentist = {
   dentistId: string

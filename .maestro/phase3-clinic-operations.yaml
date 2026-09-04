@@ -1,0 +1,22 @@
+appId: com.amardentist.app
+name: Phase 3 clinic operations and patient follow-up
+---
+- launchApp:
+    clearState: true
+- tapOn: "Preview app"
+- assertVisible: "YOUR CARE PATH"
+- tapOn: "Join as a dental professional"
+- assertVisible: "Professional onboarding"
+- tapOn: "Clinic operations"
+- assertVisible: "Clinic schedule"
+- assertVisible: "Waiting patients"
+- tapOn: "New walk-in"
+- assertVisible: "Patient name"
+- assertVisible: "Create walk-in appointment"
+- back
+- tapOn: "Scan check-in QR"
+- assertVisible: "Manual fallback"
+- assertVisible: "Check in patient"
+- back
+- tapOn: "Clinic inbox"
+- assertVisible: "Preview Patient"

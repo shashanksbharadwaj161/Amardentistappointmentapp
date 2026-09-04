@@ -1,0 +1,18 @@
+appId: com.amardentist.app
+name: Phase 3 patient waitlist and verified review
+---
+- launchApp:
+    clearState: true
+- tapOn: "Preview app"
+- assertVisible: "YOUR CARE PATH"
+- tapOn: "Appointments"
+- assertVisible: "Share visit feedback"
+- tapOn: "Share visit feedback"
+- tapOn: "5 stars"
+- tapOn: "Submit review"
+- assertVisible: "Review submitted"
+- tapOn: "Appointments"
+- tapOn: "Waitlist"
+- assertVisible: "Waitlist updates"
+- tapOn: "Accept slot"
+- assertVisible: "Waitlist slot confirmed"

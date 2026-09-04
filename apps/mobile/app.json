@@ -34,6 +34,13 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Amar Dentist to scan one-time clinic check-in QR codes.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#F5F8F7",

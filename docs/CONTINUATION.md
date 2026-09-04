@@ -1,6 +1,6 @@
 # Amar Dentist continuation guide
 
-Updated: 2026-09-03
+Updated: 2026-09-04
 
 This is the authoritative handoff for continuing the build in a new task with no prior conversation. Read this file, `PRODUCT.md`, `DESIGN.md`, and `docs/PROGRESS.md` before changing code.
 
@@ -52,6 +52,7 @@ Useful primary documentation:
 - Expo DocumentPicker SDK 57: <https://docs.expo.dev/versions/v57.0.0/sdk/document-picker/>
 - Expo ImagePicker SDK 57: <https://docs.expo.dev/versions/v57.0.0/sdk/imagepicker/>
 - Expo Location SDK 57: <https://docs.expo.dev/versions/v57.0.0/sdk/location/>
+- Expo Camera SDK 57: <https://docs.expo.dev/versions/v57.0.0/sdk/camera/>
 - React Native QR SVG: <https://github.com/Expensify/react-native-qrcode-svg>
 - Supabase database migrations: <https://supabase.com/docs/guides/deployment/database-migrations>
 - Supabase Row Level Security: <https://supabase.com/docs/guides/database/postgres/row-level-security>
@@ -121,13 +122,13 @@ Use pnpm 9.12.0. Do not introduce another package manager or duplicate lockfile.
 
 ## 5. Current implementation status
 
-Gate-weighted whole-app completion: **36.85%**.
+Gate-weighted whole-app completion: **42.85%**.
 
 | Phase | Weight | Completion | Earned overall |
 | --- | ---: | ---: | ---: |
 | 1 — Foundation/auth/UI | 15% | 99% | 14.85% |
 | 2 — Clinics/verification/scheduling | 16% | 75% | 12.00% |
-| 3 — Marketplace/booking/appointments | 20% | 50% | 10.00% |
+| 3 — Marketplace/booking/appointments | 20% | 75% | 15.00% |
 | 4 — Dental EHR/clinical records | 18% | 0% | 0% |
 | 5 — Payments/finance/inventory/labs/subscriptions | 18% | 0% | 0% |
 | 6 — AI/admin completion/production hardening | 13% | 0% | 0% |
@@ -193,7 +194,7 @@ Edge Functions:
 - `supabase/functions/admin-invite` — Phase 1 invitation delivery and fail-closed activation.
 - `supabase/functions/clinic-invite` — Phase 2 scoped staff invitation; existing-account and new-account paths; revocation and auth-user cleanup on failure.
 
-### Phase 3 first slice implemented locally
+### Phase 3 expanded slice implemented locally
 
 Database migration: `supabase/migrations/202609030003_phase3_marketplace_booking.sql`
 
@@ -204,8 +205,10 @@ Database migration: `supabase/migrations/202609030003_phase3_marketplace_booking
 - Mock confirmation is idempotent; cancellation implements the 24-hour rule; QR redemption is single-use; waitlist offers expire after 15 minutes; no-show cannot be recorded before 15 minutes.
 - `supabase/migrations/202609030004_phase3_appointment_experience.sql` adds trusted walk-ins, verified-dentist completion, participant-only chat writes, and RLS-aware Realtime publication.
 - `supabase/migrations/202609030005_phase3_reschedule_waitlist.sql` adds atomic rescheduling and exclusion-protected 15-minute waitlist reservations/confirmation.
-- `supabase/tests/phase3_structure.test.sql` now contains 56 assertions.
-- `supabase/tests/phase3_booking_behavior.test.sql` contains 51 assertions including trusted pricing, overlap rejection, idempotency, cancellation reopening, rescheduling, waitlist reservation, QR replay resistance, completion, reviews, chat, walk-ins, no-show behavior, RLS, and auditing.
+- `supabase/migrations/202609040006_phase3_clinic_operations.sql` adds clinic-scoped guest identities, atomic guest walk-ins, and authorized clinic schedule, waitlist, and inbox RPCs.
+- `supabase/migrations/202609040007_phase3_waitlist_expiry.sql` commits expired-offer cleanup in a separate non-throwing RPC so timed-out offers cannot remain indefinitely actionable.
+- `supabase/tests/phase3_structure.test.sql` now contains 64 assertions.
+- `supabase/tests/phase3_booking_behavior.test.sql` contains 61 assertions including trusted pricing, overlap rejection, idempotency, cancellation reopening, rescheduling, waitlist reservation and committed expiry, QR replay resistance, completion, reviews, chat, guest walk-ins, clinic query isolation, no-show behavior, RLS, and auditing.
 
 Shared/mobile:
 
@@ -215,30 +218,34 @@ Shared/mobile:
 - `apps/mobile/app/patient/profiles.tsx` manages self and family profiles.
 - `apps/mobile/app/patient/appointments.tsx` provides history, policy-aware cancellation, and clinic messaging entry.
 - The appointments surface also provides atomic rescheduling entry and short-lived single-use QR presentation using only an opaque token.
-- `apps/mobile/app/patient/chat.tsx` provides participant-only messaging with realtime inserts.
+- `apps/mobile/app/patient/chat.tsx` provides participant-only messaging with realtime inserts, polling fallback, virtualized history, keyboard avoidance, and explicit sender/time accessibility labels.
+- `apps/mobile/app/patient/waitlist.tsx` provides masked dated patient requests, active-state filtering, localized dates, polling, and protected offer acceptance.
+- `apps/mobile/app/patient/review.tsx` provides verified completed-visit ratings and comments.
+- `apps/mobile/app/professional/operations.tsx`, `walk-in.tsx`, `check-in.tsx`, and `inbox.tsx` complete the clinic-side appointment lifecycle with explicit clinic, dentist, and service context plus a responsive split workspace.
+- Expo Camera scans QR-only opaque tokens; a manual fallback remains available when camera permission is denied.
 - `apps/mobile/src/lib/phase3.ts` connects Supabase RPCs and deterministic preview fixtures.
-- `.maestro/phase3-marketplace-booking.yaml` covers the patient preview journey.
+- Three Phase 3 Maestro flows cover booking, patient follow-up, and clinic operations previews.
 
-Verified in-browser: the complete English discovery-to-receipt flow, full filter panel, appointment history/cancellation, and messaging, plus Bangla discovery. The map is currently an original interactive visual canvas, not a production street-map provider.
+Verified in-browser at compact and tablet widths: English and Bangla review, waitlist acceptance, clinic schedule actions, guest walk-in creation, check-in fallback, and clinic inbox/thread entry, in addition to the prior discovery, booking, cancellation, and messaging flows. No horizontal overflow or runtime errors were found. The map remains an original interactive visual canvas, not a production street-map provider.
 
 ## 6. Verified evidence at this checkpoint
 
-Successful on 2026-09-03:
+Successful on 2026-09-04:
 
 - `pnpm verify:local`
   - lint passed across shared, mobile, and Admin.
   - strict TypeScript passed across shared, mobile, and Admin.
-  - 14 shared tests passed, including 5 Phase 3 booking tests.
+  - 15 shared tests passed, including 6 Phase 3 booking tests.
   - 6 mobile component/link tests passed.
   - 2 Admin tests passed.
-  - secret scan passed across 154 files.
+  - secret scan passed across 164 files.
   - UI audit returned zero findings.
   - Admin production build passed.
   - Expo production export passed for web, iOS, and Android.
 - `pnpm verify:edge` — 16 Edge Function tests passed, 8 per invitation function.
 - `pnpm verify:e2e` — 5 Playwright tests passed across desktop and mobile Chromium; one desktop-only mobile-navigation test was intentionally skipped.
 - Phase 2 migration and pgTAP files were syntactically parsed as PostgreSQL using `pglast`: 86 migration statements, 75 access-test statements, and 40 structure-test statements.
-- Phase 3 migrations and pgTAP files were syntactically parsed using `pglast`: 87 core-migration statements, 9 experience-migration statements, 8 reschedule/waitlist statements, 60 structure-test statements, and 114 behavior-test statements.
+- Phase 3 migrations and pgTAP files were syntactically parsed using `pglast`: 87 core-migration statements, 9 experience-migration statements, 8 reschedule/waitlist statements, 12 clinic-operations statements, 5 waitlist-expiry statements, 68 structure-test statements, and 141 behavior-test statements. This remains syntax evidence, not semantic database proof.
 - `git diff --check` passed.
 
 Not yet proven:
@@ -248,7 +255,7 @@ Not yet proven:
 - `clinic-invite` has not been deployed or live-tested.
 - Physical iOS/Android Maestro runs are outstanding.
 - English/Bangla large-text and reduced-motion physical visual QA is outstanding.
-- Phase 3 production map provider, waitlist-acceptance/QR-scanning/review/professional-walk-in/clinic-chat UI, notification processing, and device E2E are outstanding.
+- Phase 3 production map provider, notification processing, live migration/RLS proof, physical QR-camera verification, and device E2E are outstanding.
 
 Do not describe those items as passed based on syntax parsing or web preview alone.
 
@@ -266,7 +273,7 @@ Preferred safe resolution, in order:
 4. Apply `202609030002_phase2_clinics_scheduling.sql`.
 5. Run the two Phase 2 pgTAP files against the actual project.
 6. Deploy `clinic-invite` and verify unauthenticated, unauthorized, successful existing-user, successful new-user, and delivery-failure paths.
-7. Apply the Phase 3 migrations in order: `202609030003_phase3_marketplace_booking.sql`, `202609030004_phase3_appointment_experience.sql`, then `202609030005_phase3_reschedule_waitlist.sql`.
+7. Apply the Phase 3 migrations in order: `202609030003_phase3_marketplace_booking.sql`, `202609030004_phase3_appointment_experience.sql`, `202609030005_phase3_reschedule_waitlist.sql`, `202609040006_phase3_clinic_operations.sql`, then `202609040007_phase3_waitlist_expiry.sql`.
 8. Run both Phase 3 pgTAP files against the actual project, including the concurrent-booking and waitlist-hold cases.
 9. Record proof in `docs/PROGRESS.md`; never paste tokens, email addresses, or passwords into the repository.
 
@@ -285,9 +292,10 @@ Before applying the Phase 2 migration, pay special attention to:
 2. Run `.maestro/phase2-clinic-scheduling.yaml` on physical iOS and Android devices.
 3. Re-run `pnpm verify:local`, `pnpm verify:edge`, `pnpm verify:e2e`, and database tests after any fix.
 4. Mark Phase 2 100% only after pending visibility, cross-clinic isolation, and exception-driven availability are proven on live PostgreSQL and physical mobile checks pass.
-5. Complete the remaining Phase 3 UI in this order: patient waitlist join/accept, verified review submission, professional walk-in creation, clinic-side chat, then QR scanning/device proof.
+5. Deploy notification processing and verify idempotent retry/failure handling.
 6. Select and integrate a production map provider only when its credential and billing constraints are confirmed; preserve the accessible list and location-denied fallback.
-7. Do not begin Phase 4 until the remaining Phase 3 work is checkpointed and all locally runnable gates are green. Do not edit an already-applied migration after deployment; add a corrective migration instead.
+7. Run physical QR-camera and all Phase 3 Maestro flows on iOS and Android.
+8. Do not edit an already-applied migration after deployment; add a corrective migration instead.
 
 Suggested commands:
 

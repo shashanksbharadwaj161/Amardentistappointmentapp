@@ -3,13 +3,12 @@ import { Button } from '@heroui/react/button'
 import { Chip } from '@heroui/react/chip'
 import type { Session } from '@supabase/supabase-js'
 import { Activity, FileCheck2, LayoutDashboard, LogOut, Menu, Search, Settings2, ShieldAlert, ShieldCheck, UserPlus, Users, X } from 'lucide-react'
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import brandMascot from './assets/brand-mascot.png'
+import { InviteAdminDialog } from './components/InviteAdminDialog'
 import { VerificationWorkspace } from './components/VerificationWorkspace'
 import { demoAllowed, supabase } from './lib/supabase'
 import './App.css'
-
-const InviteAdminDialog = lazy(() => import('./components/InviteAdminDialog').then((module) => ({ default: module.InviteAdminDialog })))
 
 type AdminIdentity = { fullName: string; email: string; roles: AppRole[] }
 
@@ -69,7 +68,6 @@ const nav = [
 function Console({ identity, onSignOut }: { identity: AdminIdentity; onSignOut: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
-  const [inviteLoaded, setInviteLoaded] = useState(false)
   const [activeView, setActiveView] = useState<'overview' | 'verification'>('overview')
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileNavigation, setMobileNavigation] = useState(false)
@@ -127,14 +125,14 @@ function Console({ identity, onSignOut }: { identity: AdminIdentity; onSignOut: 
           <div className="top-actions"><div className="profile-summary"><span>{identity.fullName.charAt(0)}</span><div><strong>{identity.fullName}</strong><small>{isSuperAdmin ? 'Super Admin' : 'Admin'}</small></div></div></div>
         </header>
         <main className="content">{activeView === 'verification' ? <VerificationWorkspace query={searchQuery} /> : <>
-          <div className="page-heading"><div><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Good morning, {identity.fullName.split(' ')[0]}.</h1><p>Clinic and dentist verification are ready for careful review.</p></div>{isSuperAdmin && <Button ref={inviteButtonRef} className="primary-button compact" type="button" onPress={() => { setInviteLoaded(true); setInviteOpen(true) }}><UserPlus />Invite admin</Button>}</div>
+          <div className="page-heading"><div><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Good morning, {identity.fullName.split(' ')[0]}.</h1><p>Clinic and dentist verification are ready for careful review.</p></div>{isSuperAdmin && <Button ref={inviteButtonRef} className="primary-button compact" type="button" onPress={() => setInviteOpen(true)}><UserPlus />Invite admin</Button>}</div>
           <section className="readiness" aria-labelledby="readiness-heading"><div className="readiness-header"><div><span className="status-dot" /><h2 id="readiness-heading">Operational readiness</h2></div><strong>Clinics &amp; professionals</strong></div><div className="readiness-grid"><article><ShieldCheck /><div><strong>Role isolation</strong><span>Database-enforced</span></div><Chip className="status-chip" color="success" size="sm"><Chip.Label>Active</Chip.Label></Chip></article><article><FileCheck2 /><div><strong>Verification queue</strong><span>Private evidence review</span></div><Chip className="status-chip" color="success" size="sm"><Chip.Label>Active</Chip.Label></Chip></article><article><Activity /><div><strong>Decision history</strong><span>Reviewer and reason retained</span></div><Chip className="status-chip" color="success" size="sm"><Chip.Label>Active</Chip.Label></Chip></article></div></section>
           <div className="two-column"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">ATTENTION QUEUE</p><h2>Applications ready for review</h2></div><Chip className="phase-label" size="sm"><Chip.Label>Phase 2</Chip.Label></Chip></div><div className="empty-state"><span><FileCheck2 /></span><h3>Verification is active</h3><p>Clinic and dentist applications are private until an administrator records a decision.</p><Button className="secondary-button" onPress={() => setActiveView('verification')}>Open verification queue</Button></div></section><section className="panel"><div className="panel-heading"><div><p className="eyebrow">SECURITY LEDGER</p><h2>Foundation events</h2></div></div><ol className="timeline"><li><span /><div><strong>Administrator session verified</strong><p>{identity.email}</p></div><time>Now</time></li><li><span /><div><strong>Role policy evaluated</strong><p>{isSuperAdmin ? 'Super Admin access granted' : 'Admin access granted'}</p></div><time>Now</time></li><li className="future"><span /><div><strong>Verification decision history</strong><p>Every approval and rejection is retained.</p></div></li></ol></section></div>
         </>}
         </main>
       </div>
       {menuOpen && <button className="scrim" aria-label="Close navigation" onClick={closeMenu} />}
-      {inviteLoaded && <Suspense fallback={null}><InviteAdminDialog open={inviteOpen} onOpenChange={changeInviteOpen} onInvite={invite} /></Suspense>}
+      <InviteAdminDialog open={inviteOpen} onOpenChange={changeInviteOpen} onInvite={invite} />
     </div>
   )
 }

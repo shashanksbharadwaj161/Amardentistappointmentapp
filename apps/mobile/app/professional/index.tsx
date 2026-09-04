@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Redirect, router, Stack } from 'expo-router'
-import { Building2, CalendarDays, ChevronRight, FileBadge2, LockKeyhole, UserCheck, UsersRound } from 'lucide-react-native'
+import { Building2, CalendarCheck2, CalendarDays, ChevronRight, FileBadge2, LockKeyhole, UserCheck, UsersRound } from 'lucide-react-native'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Button } from '../../src/components/Button'
 import { Screen } from '../../src/components/Screen'
@@ -62,6 +62,7 @@ export default function ProfessionalHomeScreen() {
             {overview.data?.clinics.map((clinic) => <View key={clinic.id} style={styles.clinicRow}><View style={styles.clinicIcon}><UserCheck size={18} color={colors.ink} /></View><View style={styles.linkCopy}><Text style={styles.linkTitle}>{clinic.name}</Text><Text style={styles.body}>{clinic.city} · {clinic.roles.map((role) => role.replace('clinic_', '').replace('_', ' ')).join(', ')}</Text></View><StatusPill status={clinic.status} /></View>)}
           </SectionCard>
           {overview.data?.clinics.some((clinic) => clinic.roles.some((role) => role === 'clinic_owner' || role === 'clinic_manager')) ? <Pressable accessibilityRole="button" onPress={() => router.push('/professional/team')} style={styles.linkCard}><View style={styles.icon}><UsersRound size={23} color={colors.teal} /></View><View style={styles.linkCopy}><Text style={styles.linkTitle}>{t('manageTeam')}</Text><Text style={styles.body}>{t('manageTeamBody')}</Text></View><ChevronRight size={20} color={colors.muted} /></Pressable> : null}
+          {overview.data?.clinics.some((clinic) => clinic.status === 'approved') ? <Pressable accessibilityRole="button" onPress={() => router.push('/professional/operations')} style={styles.linkCard}><View style={styles.icon}><CalendarCheck2 size={23} color={colors.teal} /></View><View style={styles.linkCopy}><Text style={styles.linkTitle}>{t('clinicOperations')}</Text><Text style={styles.body}>{t('clinicOperationsBody')}</Text></View><ChevronRight size={20} color={colors.muted} /></Pressable> : null}
           <Button label={t('openCalendar')} onPress={() => router.push('/professional/calendar')} />
         </View>
       )}

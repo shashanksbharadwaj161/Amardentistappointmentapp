@@ -58,7 +58,7 @@ External checks still required:
 
 ## Phase 3 — Marketplace, booking, and appointments
 
-First local slice implemented on 2026-09-03:
+Expanded local slice implemented through 2026-09-04:
 
 - Patient and family/dependant profile storage and mobile management.
 - Foreground location permission with a no-location browsing fallback.
@@ -66,17 +66,18 @@ First local slice implemented on 2026-09-03:
 - Search, specialty, price, rating, gender, language, and open-now controls; server supports distance and radius filters.
 - Trusted availability and service-derived duration, price, and deposit.
 - Ten-minute booking holds, advisory slot serialization, hold and appointment exclusion constraints, idempotent mock confirmation, receipts, and availability reopening after valid cancellation.
-- Appointment history/cancellation/rescheduling, participant-only patient-clinic chat, realtime chat and professional schedule refresh, trusted walk-ins, and assigned verified-dentist completion.
-- Single-use QR presentation/check-in primitives, exclusion-protected 15-minute waitlist offers, 24-hour deposit policy, 15-minute no-show rule, verified reviews, audit events, and privacy-safe notification outbox.
-- Five shared booking-rule tests, 56 structural pgTAP assertions, 51 behavioral pgTAP assertions, and a Maestro marketplace/booking flow.
-- English discovery-to-receipt, filters, history/cancellation, and messaging plus Bangla discovery passed browser interaction; all-platform production export passed.
+- Appointment history/cancellation/rescheduling, participant-only patient-clinic chat, realtime chat, ten-second time-sensitive screen refresh, clinic-scoped guest walk-ins, and assigned verified-dentist completion.
+- Single-use QR presentation plus camera/manual redemption, exclusion-protected 15-minute waitlist join/offer/accept flows, 24-hour deposit policy, 15-minute no-show rule, verified review submission, audit events, and privacy-safe notification outbox.
+- Clinic operations workspace with explicit multi-clinic context, dentist/service selection, schedule state, no-show/completion actions, service-matched waitlist offers, walk-ins, check-in, and patient inbox.
+- Six shared booking-rule tests, 64 structural pgTAP assertions, 61 behavioral pgTAP assertions, and three Phase 3 Maestro flows.
+- English and Bangla patient/professional flows passed browser interaction at phone and tablet widths without horizontal overflow; the expanded operations split view and 730px wrapping repair were visually verified. All-platform production export passed on 2026-09-04.
 
 Still required before Phase 3 closes:
 
 - Apply and semantically verify the Phase 2 and Phase 3 migrations/RLS on PostgreSQL.
 - Connect an actual map provider while preserving list access.
-- Complete waitlist patient acceptance, QR scanning, review submission UI, professional walk-in UI, and clinic-side chat workspace.
 - Deploy notification processing and verify failure/retry behavior.
+- Verify QR camera permission, scanning, and replay resistance on physical devices.
 - Run concurrent database clients to prove exactly one booking winner.
 - Run physical iOS/Android Maestro and English/Bangla visual/accessibility gates.
 

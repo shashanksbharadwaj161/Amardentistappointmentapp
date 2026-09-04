@@ -35,6 +35,7 @@ export default function WelcomeScreen() {
           accessibilityIgnoresInvertColors
           accessibilityLabel={t('brandMascot')}
           source={require('../assets/brand-mascot.png')}
+          resizeMode="contain"
           style={styles.heroMascot}
         />
         <View style={styles.eyebrow}><View style={styles.pulse} /><Text style={styles.eyebrowText}>{t('careEyebrow')}</Text></View>
@@ -74,7 +75,7 @@ const styles = StyleSheet.create({
   language: { minHeight: hitTarget, flexDirection: 'row', alignItems: 'center', gap: 7, paddingHorizontal: 12, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.paper },
   languageText: { color: colors.ink, fontWeight: '700' },
   hero: { marginTop: 64, gap: spacing.lg },
-  heroMascot: { width: 164, height: 164, resizeMode: 'contain', alignSelf: 'center', marginBottom: spacing.sm },
+  heroMascot: { width: 164, height: 164, alignSelf: 'center', marginBottom: spacing.sm },
   eyebrow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
   pulse: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.mint },
   eyebrowText: { color: colors.teal, fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
