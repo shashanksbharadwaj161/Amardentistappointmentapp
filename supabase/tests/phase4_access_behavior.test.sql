@@ -54,33 +54,33 @@ insert into public.appointments(id,patient_profile_id,booked_by,clinic_id,dentis
 set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000004';
 set local "request.jwt.claim.role"='authenticated';
-select results_eq($$select count(*)::bigint from public.patient_medical_histories$$,$$values(0::bigint)$$,'front desk cannot read clinical history');
+select is((select count(*)::bigint from public.patient_medical_histories),0::bigint,'front desk cannot read clinical history');
 select throws_ok($$select public.start_clinical_encounter('44000000-0000-4000-8000-000000000001')$$,'42501','ENCOUNTER_DENIED','front desk cannot start an encounter');
 
 reset role;
 set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000001';
 set local "request.jwt.claim.role"='authenticated';
-select results_eq($$select count(*)::bigint from public.patient_allergies$$,$$values(0::bigint)$$,'clinic owner cannot read clinical allergies');
+select is((select count(*)::bigint from public.patient_allergies),0::bigint,'clinic owner cannot read clinical allergies');
 
 reset role;
 set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000006';
 set local "request.jwt.claim.role"='authenticated';
-select results_eq($$select count(*)::bigint from public.patient_medical_histories$$,$$values(0::bigint)$$,'ordinary Admin cannot read clinical history');
+select is((select count(*)::bigint from public.patient_medical_histories),0::bigint,'ordinary Admin cannot read clinical history');
 select throws_ok($$select public.super_admin_clinical_snapshot((select id from public.patient_profiles limit 1),'Investigating authorized support request')$$,'42501','SUPER_ADMIN_REQUIRED','ordinary Admin cannot use the audited Super Admin reader');
 
 reset role;
 set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000002';
 set local "request.jwt.claim.role"='authenticated';
-select results_eq($$select count(*)::bigint from public.patient_medical_histories$$,$$values(1::bigint)$$,'consented treating dentist reads patient history');
+select is((select count(*)::bigint from public.patient_medical_histories),1::bigint,'consented treating dentist reads patient history');
 select ok(length(set_config('test.encounter',public.start_clinical_encounter('44000000-0000-4000-8000-000000000001')::text,true))=36,'assigned verified dentist starts encounter');
 select is(public.start_clinical_encounter('44000000-0000-4000-8000-000000000001'),current_setting('test.encounter')::uuid,'opening an existing encounter is idempotent');
 select lives_ok($$select public.save_clinical_encounter(current_setting('test.encounter')::uuid,'Sensitivity','Patient reports cold sensitivity','Caries visible on 16','Dentinal caries','Restore tooth 16','Initial structured assessment')$$,'dentist saves structured progress notes');
 select ok(length(public.add_clinical_diagnosis(current_setting('test.encounter')::uuid,'K02.9','Dental caries','Tooth 16')::text)=36,'verified dentist records diagnosis');
-select ok(length(public.save_tooth_observation(current_setting('test.encounter')::uuid,'adult','16','occlusal','Caries','Initial odontogram')::text)=36,'dentist charts an adult FDI surface');
-select throws_ok($$select public.save_tooth_observation(current_setting('test.encounter')::uuid,'primary','18','occlusal','Caries','Invalid primary code')$$,'23514','primary dentition rejects an adult FDI code');
+select lives_ok($$select public.save_tooth_observation(current_setting('test.encounter')::uuid,'adult','16','occlusal','Caries','Initial odontogram')$$,'dentist charts an adult FDI surface');
+select throws_ok($$select public.save_tooth_observation(current_setting('test.encounter')::uuid,'primary','18','occlusal','Caries','Invalid primary code')$$,'23514','INVALID_FDI_TOOTH_CODE','primary dentition rejects an adult FDI code');
 select ok(length(set_config('test.plan',public.create_treatment_plan(current_setting('test.encounter')::uuid,'Restore tooth 16','Discussed alternatives','[{"description":"Composite restoration","fdiToothCode":"16","estimatedPriceBdt":2500}]'::jsonb)::text,true))=36,'dentist creates treatment plan and item');
 select lives_ok($$select public.finalize_treatment_plan(current_setting('test.plan')::uuid,'Plan reviewed with patient')$$,'dentist finalizes treatment plan');
 select ok(length(set_config('test.prescription',public.save_prescription_draft(current_setting('test.encounter')::uuid,null,'Take after food','[{"medicineName":"Paracetamol","strength":"500 mg","dosage":"1 tablet","route":"oral","frequency":"twice daily","duration":"3 days","instructions":"After food"}]'::jsonb,'Initial prescription')::text,true))=36,'dentist saves structured prescription draft');
@@ -90,8 +90,8 @@ reset role;
 set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000003';
 set local "request.jwt.claim.role"='authenticated';
-select results_eq($$select count(*)::bigint from public.clinical_encounters$$,$$values(0::bigint)$$,'patient cannot see draft encounter');
-select results_eq($$select count(*)::bigint from public.prescriptions$$,$$values(1::bigint)$$,'patient sees finalized prescription only');
+select is((select count(*)::bigint from public.clinical_encounters),0::bigint,'patient cannot see draft encounter');
+select is((select count(*)::bigint from public.prescriptions),1::bigint,'patient sees finalized prescription only');
 select lives_ok($$select public.set_prescription_document(current_setting('test.prescription')::uuid,(select patient_profile_id::text||'/'||id::text||'.pdf' from public.prescriptions where id=current_setting('test.prescription')::uuid))$$,'authorized patient can register a private generated prescription document');
 
 reset role;
@@ -99,16 +99,16 @@ set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000002';
 set local "request.jwt.claim.role"='authenticated';
 select lives_ok($$select public.finalize_clinical_encounter(current_setting('test.encounter')::uuid,'All fields reviewed')$$,'verified dentist finalizes encounter');
-select results_eq($$select status::text,completed_at is not null from public.appointments where id='44000000-0000-4000-8000-000000000001'$$,$$values('completed',true)$$,'finalizing clinical care completes the checked-in appointment atomically');
+select is((select status::text||':'||(completed_at is not null)::text from public.appointments where id='44000000-0000-4000-8000-000000000001'),'completed:true','finalizing clinical care completes the checked-in appointment atomically');
 
 reset role;
 set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000003';
 set local "request.jwt.claim.role"='authenticated';
-select results_eq($$select count(*)::bigint from public.clinical_encounters$$,$$values(1::bigint)$$,'patient sees finalized encounter');
-select results_eq($$select count(*)::bigint from public.clinical_diagnoses$$,$$values(1::bigint)$$,'patient sees finalized diagnosis');
-select results_eq($$select count(*)::bigint from public.odontogram_observations$$,$$values(1::bigint)$$,'patient sees finalized odontogram observation');
-select results_eq($$select count(*)::bigint from public.treatment_plans$$,$$values(1::bigint)$$,'patient sees finalized treatment plan');
+select is((select count(*)::bigint from public.clinical_encounters),1::bigint,'patient sees finalized encounter');
+select is((select count(*)::bigint from public.clinical_diagnoses),1::bigint,'patient sees finalized diagnosis');
+select is((select count(*)::bigint from public.odontogram_observations),1::bigint,'patient sees finalized odontogram observation');
+select is((select count(*)::bigint from public.treatment_plans),1::bigint,'patient sees finalized treatment plan');
 
 reset role;
 insert into public.appointments(id,patient_profile_id,booked_by,clinic_id,dentist_id,service_id,start_at,end_at,duration_minutes,price_bdt,deposit_bdt,status,completed_at) values
@@ -117,7 +117,7 @@ insert into public.appointments(id,patient_profile_id,booked_by,clinic_id,dentis
 set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000008';
 set local "request.jwt.claim.role"='authenticated';
-select results_eq($$select count(*)::bigint from public.clinical_encounters where clinic_id='42000000-0000-4000-8000-000000000001'$$,$$values(0::bigint)$$,'second clinic dentist cannot read prior clinic history without consent');
+select is((select count(*)::bigint from public.clinical_encounters where clinic_id='42000000-0000-4000-8000-000000000001'),0::bigint,'second clinic dentist cannot read prior clinic history without consent');
 
 reset role;
 set local role authenticated;
@@ -129,7 +129,7 @@ reset role;
 set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000008';
 set local "request.jwt.claim.role"='authenticated';
-select results_eq($$select count(*)::bigint from public.clinical_encounters where clinic_id='42000000-0000-4000-8000-000000000001'$$,$$values(1::bigint)$$,'second treating dentist reads finalized prior history after consent');
+select is((select count(*)::bigint from public.clinical_encounters where clinic_id='42000000-0000-4000-8000-000000000001'),1::bigint,'second treating dentist reads finalized prior history after consent');
 
 reset role;
 set local role authenticated;
@@ -141,7 +141,7 @@ reset role;
 set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000008';
 set local "request.jwt.claim.role"='authenticated';
-select results_eq($$select count(*)::bigint from public.clinical_encounters where clinic_id='42000000-0000-4000-8000-000000000001'$$,$$values(0::bigint)$$,'revocation blocks future cross-clinic reads');
+select is((select count(*)::bigint from public.clinical_encounters where clinic_id='42000000-0000-4000-8000-000000000001'),0::bigint,'revocation blocks future cross-clinic reads');
 
 reset role;
 select ok((select count(*)>=4 from public.clinical_record_versions),'clinical edits preserve before and after versions');
@@ -149,12 +149,12 @@ select ok((select count(*)>=4 from public.clinical_record_versions),'clinical ed
 set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000007';
 set local "request.jwt.claim.role"='authenticated';
-select results_eq($$select count(*)::bigint from public.clinical_encounters$$,$$values(0::bigint)$$,'Super Admin direct table reads are denied to preserve auditability');
+select is((select count(*)::bigint from public.clinical_encounters),0::bigint,'Super Admin direct table reads are denied to preserve auditability');
 select is(jsonb_typeof(public.super_admin_clinical_snapshot((select id from public.patient_profiles where account_owner_id='41000000-0000-4000-8000-000000000003'),'Investigating authorized patient support request')),'object','Super Admin reads a complete snapshot through audited RPC');
 
 reset role;
-select results_eq($$select count(*)::bigint from public.audit_logs where action='clinical.super_admin_read'$$,$$values(1::bigint)$$,'Super Admin clinical read is audited');
-select results_eq($$select count(*)::bigint from storage.buckets where id in ('clinical-media','prescriptions') and public=false$$,$$values(2::bigint)$$,'clinical media and prescription buckets are private');
+select is((select count(*)::bigint from public.audit_logs where action='clinical.super_admin_read'),1::bigint,'Super Admin clinical read is audited');
+select is((select count(*)::bigint from storage.buckets where id in ('clinical-media','prescriptions') and public=false),2::bigint,'clinical media and prescription buckets are private');
 
 select * from finish();
 rollback;

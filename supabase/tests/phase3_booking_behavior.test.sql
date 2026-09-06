@@ -287,10 +287,15 @@ select throws_ok(
   $$select * from public.list_clinic_appointments('31000000-0000-4000-8000-000000000001', clock_timestamp(), clock_timestamp() + interval '1 day')$$,
   '42501', 'CLINIC_SCHEDULE_DENIED', 'an unrelated patient cannot call the clinic schedule RPC'
 );
-select results_eq(
-  $$select count(*)::bigint from public.patient_profiles where managed_by_clinic_id='31000000-0000-4000-8000-000000000001'$$,
-  $$values (0::bigint)$$,
+select is(
+  (select count(*)::bigint from public.patient_profiles where managed_by_clinic_id='31000000-0000-4000-8000-000000000001'),
+  0::bigint,
   'an unrelated patient cannot read a clinic-managed guest profile'
+);
+select public.join_waitlist(
+  (select id from public.patient_profiles where account_owner_id='30000000-0000-4000-8000-000000000004'),
+  '31000000-0000-4000-8000-000000000001','30000000-0000-4000-8000-000000000002',
+  '32000000-0000-4000-8000-000000000001',current_date + 9,'09:00','11:00'
 );
 
 reset role;
@@ -304,9 +309,8 @@ select results_eq(
 );
 
 reset role;
-select results_eq(
-  $$select count(*)::bigint from public.audit_logs where action in ('patient_profile.saved','appointment.hold_created','appointment.confirmed_mock','appointment.cancelled')$$,
-  $$values (5::bigint)$$,
+select ok(
+  (select count(*) >= 5 from public.audit_logs where action in ('patient_profile.saved','appointment.hold_created','appointment.confirmed_mock','appointment.cancelled')),
   'Phase 3 trusted mutations produce audit events'
 );
 

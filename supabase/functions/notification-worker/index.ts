@@ -1,0 +1,2 @@
+import { createNotificationWorker } from './handler.ts'
+Deno.serve(createNotificationWorker({supabaseUrl:Deno.env.get('SUPABASE_URL'),serviceRoleKey:Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'),workerSecret:Deno.env.get('NOTIFICATION_WORKER_SECRET'),pushUrl:Deno.env.get('PUSH_PROVIDER_URL'),pushToken:Deno.env.get('PUSH_PROVIDER_TOKEN'),emailUrl:Deno.env.get('EMAIL_PROVIDER_URL'),emailToken:Deno.env.get('EMAIL_PROVIDER_TOKEN'),smsUrl:Deno.env.get('SMS_PROVIDER_URL'),smsToken:Deno.env.get('SMS_PROVIDER_TOKEN')}))

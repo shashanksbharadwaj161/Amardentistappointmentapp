@@ -1,0 +1,27 @@
+appId: com.amardentist.app
+name: Phase 6 AI safety and review boundaries
+---
+- launchApp:
+    clearState: true
+- tapOn: "Preview app"
+- scrollUntilVisible:
+    element: "Care assistant"
+    direction: DOWN
+- tapOn: "Care assistant"
+- assertVisible: "This assistant gives general information only"
+- tapOn: "Your message"
+- inputText: "Tooth pain for two days and mild swelling"
+- tapOn: "Get safe guidance"
+- assertVisible: "This is general information only"
+- assertVisible: "Find a verified dentist"
+- back
+- tapOn: "Join as a dental professional"
+- tapOn: "Clinic operations"
+- tapOn: "Open clinical record"
+- tapOn: "AI clinical review"
+- assertVisible: "AI output is never final"
+- assertVisible: "X-ray · experimental"
+- tapOn: "Clinical facts and drafting goal"
+- inputText: "Draft only from the reported sensitivity and recorded examination."
+- tapOn: "Generate private draft"
+- assertVisible: "Review every field"

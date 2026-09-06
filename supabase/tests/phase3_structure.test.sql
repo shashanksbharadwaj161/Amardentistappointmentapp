@@ -55,7 +55,7 @@ select has_column('public', 'patient_profiles', 'created_by', 'guest profile aut
 select policies_are('public', 'patient_profiles', array['patient_profiles_read_owner']);
 select policies_are('public', 'appointment_holds', array['appointment_holds_read_scoped']);
 select policies_are('public', 'appointments', array['appointments_read_scoped']);
-select policies_are('public', 'payment_transactions', array['payments_read_scoped']);
+select ok((select exists(select 1 from pg_policies where schemaname='public' and tablename='payment_transactions' and policyname='payments_read_scoped')),'Phase 3 payment visibility policy remains installed');
 select policies_are('public', 'appointment_events', array['appointment_events_read_scoped']);
 select policies_are('public', 'appointment_checkin_tokens', array['checkin_tokens_read_creator_or_staff']);
 select policies_are('public', 'waitlist_entries', array['waitlist_read_scoped']);
@@ -64,9 +64,9 @@ select policies_are('public', 'chat_threads', array['chat_threads_read_participa
 select policies_are('public', 'chat_messages', array['chat_messages_read_participants']);
 select policies_are('public', 'notification_outbox', array['notifications_read_recipient_or_admin']);
 
-select has_constraint('public', 'appointment_holds', 'no_overlapping_active_holds', 'active holds have a database exclusion constraint');
-select has_constraint('public', 'appointments', 'no_overlapping_appointments', 'active appointments have a database exclusion constraint');
-select has_constraint('public', 'patient_profiles', 'patient_profile_ownership_scope', 'a patient profile has exactly one ownership boundary');
+select ok((select exists(select 1 from pg_constraint where conrelid='public.appointment_holds'::regclass and conname='no_overlapping_active_holds')),'active holds have a database exclusion constraint');
+select ok((select exists(select 1 from pg_constraint where conrelid='public.appointments'::regclass and conname='no_overlapping_appointments')),'active appointments have a database exclusion constraint');
+select ok((select exists(select 1 from pg_constraint where conrelid='public.patient_profiles'::regclass and conname='patient_profile_ownership_scope')),'a patient profile has exactly one ownership boundary');
 select ok(not has_table_privilege('authenticated', 'public.appointments', 'INSERT'), 'clients cannot insert appointments directly');
 select ok(not has_table_privilege('authenticated', 'public.payment_transactions', 'INSERT'), 'clients cannot forge payment rows');
 

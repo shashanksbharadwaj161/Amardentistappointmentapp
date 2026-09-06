@@ -1,5 +1,5 @@
 import { availableModes, type AppMode } from '@amar-dentist/domain'
-import { CalendarDays, ChevronRight, CircleUserRound, ClipboardList, Home, MapPin, Stethoscope } from 'lucide-react-native'
+import { CalendarDays, ChevronRight, CircleUserRound, ClipboardList, Home, MapPin, MessageCircleHeart, Stethoscope } from 'lucide-react-native'
 import { Redirect, router } from 'expo-router'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { BrandMark } from '../src/components/BrandMark'
@@ -16,12 +16,17 @@ export default function DashboardScreen() {
   if (!profile) return null
   const modes = availableModes(profile.roles)
   const professional = profile.activeMode === 'professional'
+  const isPreviewProfile = profile.email === 'preview@amardentist.local'
+  const professionalName = isPreviewProfile
+    ? t('doctorGeneric')
+    : `${t('doctorHonorific')} ${profile.fullName.split(' ').at(-1)}`
   const switchMode = (mode: AppMode) => void setMode(mode)
   const patientSteps = [
     { label: t('completeProfile'), detail: t('completeProfileDetail'), icon: CircleUserRound, route: '/patient/profiles' as const },
     { label: t('findDentist'), detail: t('discoveryPhase'), icon: MapPin, route: '/patient/discover' as const },
     { label: t('bookVisit'), detail: t('schedulingPhase'), icon: CalendarDays, route: '/patient/discover' as const },
     { label: t('medicalRecords'), detail: t('recordsPrivacy'), icon: ClipboardList, route: '/patient/records' as const },
+    { label: t('careAssistant'), detail: t('aiPatientBody'), icon: MessageCircleHeart, route: '/patient/assistant' as const },
   ]
 
   return (
@@ -31,7 +36,7 @@ export default function DashboardScreen() {
 
       <View style={styles.hero}>
         <Text style={styles.kicker}>{professional ? t('professionalWorkspace') : t('carePath')}</Text>
-        <Text style={styles.title}>{professional ? `${t('goodMorningDoctor')}, ${t('doctorHonorific')} ${profile.fullName.split(' ').at(-1)}` : `${t('welcomeName')}, ${profile.fullName.split(' ')[0]}`}</Text>
+        <Text style={styles.title}>{professional ? `${t('goodMorningDoctor')}, ${professionalName}` : `${t('welcomeName')}, ${profile.fullName.split(' ')[0]}`}</Text>
         <Text style={styles.subtitle}>{professional ? t('professionalReady') : t('accountReady')}</Text>
       </View>
 

@@ -1,119 +1,63 @@
-# Delivery gates
+# Six-phase delivery ledger
+
+Updated: 2026-09-05. Exact gate weighting is in `docs/PROGRESS.md`.
 
 ## Phase 1 — Foundation, authentication, and UI system
 
-Implemented:
+Implemented: Expo mobile app, separate React Admin console, shared domain/localization/permissions package, Supabase migrations/functions, verified email/password flows, recovery, secure session persistence, patient/professional switching, English/Bangla UI, roles/invitations/audit/configuration, reusable responsive components, refined mascot assets, and production exports.
 
-- Expo mobile app and separate React admin console.
-- Shared typed roles, permissions, validation, result contracts, and English/Bangla copy.
-- Verified email/password sign-up, sign-in, recovery-link password update, secure native session storage, and persisted locale sync.
-- Service-controlled Super Admin bootstrap, invitation-only Admin promotion, profile/config/audit schema, RLS, and privileged invitation Edge Function.
-- Responsive accessible UI foundation, reduced-motion support, permission-denied state, and honest unavailable states.
-- HeroUI v3 action/status primitives and an Animate UI source-owned dialog with keyboard focus restoration.
-- Unit/component/interaction tests, behavioral RLS pgTAP coverage, Maestro flow, desktop/mobile Playwright screenshots, secret scanner, and Impeccable detector.
-
-Local gate status on 2026-09-02:
-
-- Clean lint and strict TypeScript checks.
-- 10 unit/component tests passed across shared, mobile, and admin packages.
-- 8 Edge Function tests passed across authentication, authorization, validation, fail-closed delivery cleanup, activation, and audit behavior.
-- 3 Playwright checks passed across desktop and mobile Chromium; one intentional desktop skip.
-- Secret scan passed and the Impeccable anti-pattern detector returned no findings.
-- Expo production exports passed for web, iOS, and Android; the admin production build passed with the animated dialog code-split.
-
-External checks still required before the Phase 1 commit can be closed:
-
-- Create/link the selected Supabase project, apply the migration, and run `pnpm verify:db`.
-- Verify live email confirmation, password recovery, and invitation delivery.
-- Run the Maestro flow on physical iOS and Android devices.
-- Supply final signing accounts before store builds.
+Open gate: activate the real Super Admin accounts only at the final access ceremony and verify delivery/device flows on physical iOS and Android.
 
 ## Phase 2 — Clinics, verification, and scheduling
 
-Implemented locally:
+Implemented: owners/managers/dentists/front desk, one-person and multi-clinic dentists, private BMDC/clinic evidence, approval history, services/prices/deposits, weekly schedules, breaks/holidays/exceptions, shared availability, professional calendars, and responsive Admin review.
 
-- Clinic ownership and scoped manager, dentist, and front-desk memberships.
-- Independent and multi-clinic dentist model.
-- Dentist and clinic application forms with private evidence uploads.
-- Append-only approval/rejection/request-changes history and responsive Admin review workspace.
-- Clinic services, prices, deposits, durations, weekly schedule blocks, breaks, closures, and one-off availability exceptions.
-- Shared availability rules plus professional day/week calendars.
-- Fail-closed clinic invitation delivery and activation.
-- Phase 2 migration, 68 pgTAP assertions, 5 shared scheduling tests, 8 clinic invitation Edge tests, and Admin desktop/mobile browser coverage.
+Hosted proof: 36 structural and 35 behavior pgTAP assertions pass.
 
-Local gate status on 2026-09-03:
-
-- Lint and strict TypeScript passed across all packages.
-- 17 application tests passed: 9 shared, 6 mobile, and 2 Admin.
-- 16 Edge Function tests passed across both invitation functions.
-- Five Playwright scenarios passed across desktop and mobile; one intentional desktop-only navigation skip.
-- Secret scan, Impeccable anti-pattern audit, Admin production build, and Expo web/iOS/Android exports passed.
-- PostgreSQL syntax parsing passed for the Phase 2 migration and pgTAP files.
-
-External checks still required:
-
-- Apply and run the migration and pgTAP suites on the linked Supabase project.
-- Deploy and live-test the clinic invitation function.
-- Run the Phase 2 Maestro flow on physical iOS and Android devices.
+`clinic-invite` is deployed. Open gate: authenticated delivery/failure testing and physical-device/accessibility checks.
 
 ## Phase 3 — Marketplace, booking, and appointments
 
-Expanded local slice implemented through 2026-09-04:
+Implemented: family profiles, location fallback, dark map/list discovery, filters/ranking, provider profiles, services/slots, ten-minute server holds, trusted duration/deposit, advisory locking and GiST exclusion, mock payment, receipts, single-use QR, realtime-aware schedule/chat, walk-ins, cancellation/rescheduling, waitlist offers, no-shows, reviews, and notification outbox.
 
-- Patient and family/dependant profile storage and mobile management.
-- Foreground location permission with a no-location browsing fallback.
-- Original dark map/list discovery surface with approved dentist/clinic/service search and deterministic ranking.
-- Search, specialty, price, rating, gender, language, and open-now controls; server supports distance and radius filters.
-- Trusted availability and service-derived duration, price, and deposit.
-- Ten-minute booking holds, advisory slot serialization, hold and appointment exclusion constraints, idempotent mock confirmation, receipts, and availability reopening after valid cancellation.
-- Appointment history/cancellation/rescheduling, participant-only patient-clinic chat, realtime chat, ten-second time-sensitive screen refresh, clinic-scoped guest walk-ins, and assigned verified-dentist completion.
-- Single-use QR presentation plus camera/manual redemption, exclusion-protected 15-minute waitlist join/offer/accept flows, 24-hour deposit policy, 15-minute no-show rule, verified review submission, audit events, and privacy-safe notification outbox.
-- Clinic operations workspace with explicit multi-clinic context, dentist/service selection, schedule state, no-show/completion actions, service-matched waitlist offers, walk-ins, check-in, and patient inbox.
-- Six shared booking-rule tests, 64 structural pgTAP assertions, 61 behavioral pgTAP assertions, and three Phase 3 Maestro flows.
-- English and Bangla patient/professional flows passed browser interaction at phone and tablet widths without horizontal overflow; the expanded operations split view and 730px wrapping repair were visually verified. All-platform production export passed on 2026-09-04.
+Hosted proof: 64 structural and 61 behavior pgTAP assertions pass, including concurrency boundaries, expired holds, QR replay denial, and waitlist rules.
 
-Still required before Phase 3 closes:
-
-- Apply and semantically verify the Phase 2 and Phase 3 migrations/RLS on PostgreSQL.
-- Connect an actual map provider while preserving list access.
-- Deploy notification processing and verify failure/retry behavior.
-- Verify QR camera permission, scanning, and replay resistance on physical devices.
-- Run concurrent database clients to prove exactly one booking winner.
-- Run physical iOS/Android Maestro and English/Bangla visual/accessibility gates.
+Open gate: production map provider, deployed notification worker, physical QR/realtime/Maestro checks, and payment-provider transition.
 
 ## Phase 4 — Dental EHR and clinical records
 
-Implemented locally:
+Implemented: medical history/allergies, encounters/progress notes, diagnoses, adult and primary FDI odontograms, treatment plans/progress, private photos/X-rays, structured prescriptions and private PDFs, versioned bilingual consent, strict treating-dentist RLS, consent-gated cross-clinic access, before/after versions, finalized-only patient access, and reason-required audited Super Admin snapshots.
 
-- Medical history, allergies, versioned bilingual consent, encounters, progress notes, diagnoses, adult/primary FDI odontograms, treatment plans, photographs/X-rays, structured prescriptions, and private prescription PDFs.
-- Verified treating-dentist boundaries, finalized-only patient visibility, consent-gated cross-clinic reads, audited Super Admin snapshots, RPC-only mutations, immutable finalized records, and before/after versions.
-- Responsive English/Bangla clinician and patient record surfaces, private signed media downloads, and atomic appointment completion on encounter finalization.
-- 51 structural and 43 behavioral pgTAP assertions, 8 shared/mobile clinical tests, 6 prescription Edge Function tests, and a Phase 4 Maestro flow.
+Hosted proof: 51 structural and 43 behavior pgTAP assertions pass.
 
-External checks still required:
-
-- Apply the Phase 4 migration and execute both pgTAP suites semantically against PostgreSQL.
-- Deploy and live-test the prescription document function and private Storage policies.
-- Run physical iOS/Android Maestro, file upload/download, large-text, and reduced-motion checks.
-- Complete practicing-dentist validation of clinical terminology, FDI entry, prescription output, and consent copy.
+Prescription generation is deployed. Open gate: authenticated private Storage delivery, physical file/device checks, and practicing-dentist validation.
 
 ## Phase 5 — Payments, finance, inventory, labs, and subscriptions
 
-Implemented locally:
+Implemented: server-derived bKash/Nagad checkout adapters, signed idempotent callbacks/refunds, invoices/balances/discounts/expenses/receipts, commission and clinic payable ledgers, reports, stock items/lots/expiry/movements, suppliers/purchasing, treatment consumption, negative-stock prevention, lab vendors/cases/workflow/private attachments, and RevenueCat synchronization plus configurable plans/entitlements.
 
-- Trusted bKash/Nagad checkout preparation, signed idempotent callbacks, provider-confirmed refunds, invoices, commission, clinic ledger, payouts, expenses, and reconciliation.
-- Lot/expiry stock, atomic movements with negative-stock rejection, suppliers, purchase orders and receiving, lab vendors/cases/workflow/private attachments, and treatment-consumption references.
-- RevenueCat SDK purchase/restore wiring plus signed idempotent subscription synchronization and Super Admin-configurable plans/entitlements.
-- English/Bangla patient payments and professional business operations, plus responsive Super Admin revenue controls.
-- 61 structural and 26 behavioral pgTAP assertions, 6 shared rules tests, 3 mobile data tests, 18 payment/subscription Edge tests, and a Phase 5 Maestro flow.
+Hosted proof: 61 structural and 26 behavior pgTAP assertions pass.
 
-External checks still required:
+Open gate: merchant approval/credentials and real reconciliation, RevenueCat/store setup and physical purchase/restore, and pilot payout acceptance.
 
-- Apply the Phase 5 migration and run both pgTAP files semantically against PostgreSQL.
-- Configure/certify bKash and Nagad merchant endpoints and verify checkout, failure, replay, refund, and reconciliation callbacks.
-- Configure RevenueCat products/entitlements and verify renewal, cancellation, expiry, restoration, and quotas on physical iOS/Android devices.
-- Complete real payout-provider operations and reconciliation acceptance with pilot clinics.
+## Phase 6 — AI, administration, and production hardening
 
-## Phase 6 — AI, administration completion, and production hardening
+Implemented:
 
-Pending. It must add only its own schema and preserve all prior gates. See [CONTINUATION.md](CONTINUATION.md) for the full remaining plan and exact next actions.
+- Dentist AI drafts for clinical notes and prescriptions, photo-quality checks, non-diagnostic oral-photo descriptions, and separately labelled experimental X-ray observations.
+- Mandatory per-field dentist review before a draft can be accepted; raw output is never patient-visible.
+- Patient AI symptom intake, finalized-record explanation, general guidance, urgency suggestions, and booking routing with diagnosis/prescription blocking.
+- Versioned prompts and complete task/provider/model/input/raw/safe/final/reviewer/usage/cost audit records.
+- Write-only AI key rotation through a server-only function and Supabase Vault; clients receive only masked status.
+- Rate limits, feature flags, usage limits, notification devices/deliveries/worker, support cases, moderation actions, and privacy-safe aggregate usage.
+- Super Admin read-only users, cases, and audit investigation surfaces, plus working AI/provider, flags, limits, commission, plans, and verification configuration surfaces.
+- Database-enforced AI release flags and subscription-aware quotas, atomic dentist review/application, and notification processing-lease recovery.
+- Legal drafts, production/pilot checklist, restore-drill procedure, safety fixtures, and 24-screen visual evidence pack.
+
+Hosted proof: 47 structural and 28 behavior pgTAP assertions pass.
+
+All Phase 6 functions are deployed. Open gate: add operational case assignment/resolution, moderation, and refund actions; review the custom-auth gateway setting; live-test authenticated/provider success paths; add the real AI key; configure delivery providers; and complete restore drill, physical-device suite, legal/clinical review, signed store builds, real Super Admin activation, and closed-clinic pilot.
+
+## Rule for declaring completion
+
+No adapter, mock, browser preview, or syntax check can substitute for the real provider, database, physical-device, legal, clinical, or pilot gate named above. No phase closes with a known critical or high-severity defect.

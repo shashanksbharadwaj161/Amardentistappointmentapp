@@ -1,5 +1,5 @@
 begin;
-select plan(32);
+select plan(35);
 
 insert into auth.users (id, aud, role, email, email_confirmed_at, raw_user_meta_data)
 values
@@ -38,7 +38,7 @@ select results_eq(
   'creator receives an active clinic owner membership'
 );
 select lives_ok(
-  $$select public.invite_clinic_member((select id from public.clinics where name = 'Calm Dental Centre'),'dentist@example.test','dentist',7)$$,
+  $$select set_config('test.clinic_invitation_id', public.invite_clinic_member((select id from public.clinics where name = 'Calm Dental Centre'),'dentist@example.test','dentist',7)::text, true)$$,
   'clinic owner can invite a dentist'
 );
 select results_eq(
@@ -51,7 +51,7 @@ reset role;
 set local role service_role;
 set local "request.jwt.claim.role" = 'service_role';
 select lives_ok(
-  $$select public.activate_clinic_invitation((select id from public.clinic_staff_invitations where email='dentist@example.test'))$$,
+  $$select public.activate_clinic_invitation(current_setting('test.clinic_invitation_id')::uuid)$$,
   'service role activates a delivered clinic invitation'
 );
 
@@ -95,7 +95,7 @@ select results_eq(
   'dentist begins submitted rather than approved'
 );
 select lives_ok(
-  $$select public.accept_clinic_membership((select m.id from public.clinic_memberships m join public.clinics c on c.id=m.clinic_id where c.name='Calm Dental Centre' and m.user_id='20000000-0000-4000-8000-000000000002' and m.role='dentist'))$$,
+  $$select public.accept_clinic_membership((select m.id from public.clinic_memberships m where m.user_id='20000000-0000-4000-8000-000000000002' and m.role='dentist' and m.status='invited'))$$,
   'the invited dentist can accept their own clinic membership'
 );
 select results_eq(
@@ -197,7 +197,7 @@ select lives_ok(
   'a second owner can create an isolated clinic'
 );
 select throws_ok(
-  $$select public.upsert_weekly_schedule_block(null,(select id from public.clinics where name='Calm Dental Centre'),'20000000-0000-4000-8000-000000000002',1,'08:00','09:00','Asia/Dhaka',true)$$,
+  $$select public.upsert_weekly_schedule_block(null,(select id from public.clinics where name='Calm Dental Centre'),'20000000-0000-4000-8000-000000000002',1::smallint,'08:00','09:00','Asia/Dhaka',true)$$,
   '42501', 'SCHEDULE_MANAGEMENT_DENIED', 'one clinic owner cannot modify another clinic schedule'
 );
 

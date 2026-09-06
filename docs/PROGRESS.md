@@ -1,35 +1,72 @@
 # Build progress
 
-Updated: 2026-09-04
+Updated: 2026-09-06
 
-Progress is gate-weighted rather than based on file count. A phase earns its full weight only after its required database, security, device, visual, and end-to-end gates pass.
+Progress is gate-weighted, not based on screens or file count. A phase earns full credit only after its database, security, provider, physical-device, visual, and pilot gates pass.
 
 | Phase | Product weight | Phase completion | Earned overall |
 | --- | ---: | ---: | ---: |
 | 1. Foundation, authentication, and UI | 15% | 99% | 14.85% |
-| 2. Clinics, verification, and scheduling | 16% | 75% | 12.00% |
-| 3. Marketplace, booking, and appointments | 20% | 80% | 16.00% |
-| 4. Dental EHR and clinical records | 18% | 75% | 13.50% |
-| 5. Payments, finance, inventory, labs, and subscriptions | 18% | 75% | 13.50% |
-| 6. AI, administration, and production hardening | 13% | 0% | 0% |
-| **Whole app** | **100%** |  | **69.85%** |
+| 2. Clinics, verification, and scheduling | 16% | 90% | 14.40% |
+| 3. Marketplace, booking, and appointments | 20% | 89% | 17.80% |
+| 4. Dental EHR and clinical records | 18% | 90% | 16.20% |
+| 5. Payments, finance, inventory, labs, and subscriptions | 18% | 81% | 14.58% |
+| 6. AI, administration, and production hardening | 13% | 77% | 10.01% |
+| **Whole app** | **100%** |  | **87.84%** |
 
-## Current gate
+## Verified checkpoint
 
-Phase 1 code, design, localization, tests, Edge Function fixtures, production exports, live schema deployment, live RLS enablement, live structural and behavioral pgTAP suites, migration-history registration, authentication URL configuration, hosted invitation-function deployment, and live unauthenticated rejection are green. Super Admin account activation is intentionally deferred to Phase 6 production hardening. A Maestro device flow is ready. Phase 1 still requires:
+All versioned migrations through `202609050014_phase6_finish_review_repairs.sql` are applied to hosted Supabase project `cfjoxuucukktegznbkoc` and registered in migration history. Hosted pgTAP completed with **452 passing assertions**:
 
-- Verify live password recovery and administrator invitation delivery.
-- Complete the physical iOS and Android Maestro run.
+- Phase 2: 36 structure + 35 behavior.
+- Phase 3: 64 structure + 61 behavior.
+- Phase 4: 51 structure + 43 behavior.
+- Phase 5: 61 structure + 26 behavior.
+- Phase 6: 47 structure + 28 behavior.
 
-Phase 2 has a complete local implementation for clinic/staff membership, clinic and dentist verification, private evidence, services, schedules, breaks, exceptions, day/week availability, and Admin review. The 2026-09-03 local gate passed lint, strict type checking, 17 application tests, 16 Edge Function tests, secret scanning, UI audit, all-platform Expo export, Admin production build, and five desktop/mobile Playwright flows. Phase 2 remains at 75% until:
+Live execution found and repaired issues that syntax-only checks could not detect: UUID GiST support, payment-table evolution across phases, ambiguous hold/cancellation identifiers, stable invalid-FDI errors, and private prescription file-path validation. Corrective migrations preserve the hosted history.
 
-- Apply `202609030002_phase2_clinics_scheduling.sql` to the linked Supabase project.
-- Execute both Phase 2 pgTAP suites against live PostgreSQL and resolve any semantic or RLS failures.
-- Deploy and verify the `clinic-invite` Edge Function.
-- Complete physical iOS and Android Maestro verification, including English/Bangla, large text, and reduced motion.
+The 2026-09-06 local regression gate is green:
 
-Phase 3 is 80% complete. The local vertical slice now includes patient/family profiles, foreground location with a privacy-preserving fallback, dark map/list discovery, complete specialty/price/rating/gender/language controls, approved marketplace search, deterministic ranking, trusted availability, ten-minute holds, mock deposit confirmation, receipts, appointment history/cancellation/rescheduling, realtime chat plus ten-second schedule/waitlist/inbox refresh, atomic guest walk-ins, explicit clinic/dentist/service context, verified-dentist completion, single-use QR presentation and camera/manual redemption, exclusion-protected 15-minute waitlist join/offer/accept flows, committed expired-offer cleanup, cancellation/no-show rules, verified post-visit reviews, clinic schedule/waitlist/inbox operations, a notification outbox, and PostgreSQL overlap constraints. English and Bangla patient/professional flows passed live browser interaction at phone and tablet widths with no horizontal overflow or runtime errors, including the repaired 730px clinic-schedule layout and expanded split workspace. Five Phase 3 migrations, 64 structural pgTAP assertions, and 61 booking-behavior assertions parse as PostgreSQL; 6 shared Phase 3 unit tests pass. It remains incomplete until migrations/tests run semantically, an actual map provider is connected, notification delivery/retry is deployed, and physical-device QR/Maestro/accessibility flows are verified.
+- Lint and strict TypeScript passed across shared, mobile, and Admin packages.
+- 31 shared domain tests, 12 mobile tests, and 3 Admin tests passed.
+- 54 Edge Function tests passed across invitations, prescriptions, payments, subscriptions, AI, key rotation, and notification delivery.
+- Secret scan passed across 258 files.
+- Impeccable UI audit returned zero repository findings.
+- Admin production build and Expo web, iOS, and Android exports passed.
+- 7 Admin Playwright journeys passed across desktop/mobile Chromium; 1 desktop-only mobile-navigation case was intentionally skipped.
+- A 24-screen UI pack documents patient, professional, Bangla, and Super Admin surfaces in `docs/screenshots/ui-pack`.
+- All 10 repository Edge Functions are deployed to the hosted project. Anonymous smoke requests are rejected with HTTP 401, proving the default boundary remains closed.
+- The independent finish review passed with no remaining critical or high-severity source issue.
 
-Phase 4 is 75% complete as a tested local vertical slice. The clinical migration adds medical histories, allergies, versioned bilingual consent, encounters/progress notes, diagnoses, adult/primary FDI odontograms, treatment plans/items, private clinical media, structured prescriptions/items, immutable lifecycle states, and before/after versions with author/reason/time. RLS excludes front desk, managers, owners, and ordinary Admins from clinical details; verified treating dentists receive only authorized access; patients see only finalized records; cross-clinic reads require active clinic-specific consent; and exceptional Super Admin reads use an audited RPC. The Expo app connects checked-in appointments to clinician documentation and atomically completes the visit on encounter finalization. Patients can maintain history/allergies, see finalized records, revoke consent, open short-lived private media URLs, and request a server-generated prescription PDF through a tested Edge Function. Browser QA passed at 320px and the reported 730px width with no horizontal overflow; the consent surface exposes explicit radio/checkbox semantics. The migration and 94 pgTAP assertions parse as PostgreSQL, 5 shared clinical-rule tests and 3 mobile clinical tests pass, and 6 prescription-function tests pass. It remains gated on live migration/semantic RLS execution, physical iOS/Android Maestro, large-text/reduced-motion/device file handling, and practicing-dentist validation.
+## Phase status
 
-Phase 5 is 75% complete as a tested local vertical slice. The migration adds server-derived bKash/Nagad payment preparation, signed idempotent payment processing, bounded idempotent refunds, invoices/discounts/balances, commission and clinic payable ledgers, expenses/payouts/reconciliation reports, lots/expiry/atomic stock movements, suppliers/purchase orders/receipts, lab vendors/cases/attachments/workflow, and RevenueCat plan/subscription synchronization. Direct client writes cannot forge payments, ledger entries, stock, or subscriptions. Mobile patients receive provider checkout, payment history, and purchase/restore subscription flows; clinic owners/managers receive finance, stock/reorder/expiry, lab, expense, and plan status surfaces; Super Admin receives audited commission and plan controls. The local gate passes 26 shared tests, 12 mobile tests, 3 Admin tests, 40 Edge Function tests, secret/UI audits, Admin build, Expo web/iOS/Android exports, PostgreSQL parsing, and 87 Phase 5 pgTAP assertions. Responsive English/Bangla browser QA passed at 320px and 730px without horizontal overflow. It remains gated on live migration/semantic pgTAP, real bKash/Nagad merchant credentials and provider certification, signed live webhook/reconciliation/refund testing, RevenueCat project/store products and sandbox purchase/restore on physical iOS/Android devices, and real payout operations.
+### Phase 1 — 99%
+
+Authentication, verified email flow, password recovery, patient/professional modes, English/Bangla localization, roles, invitations, audit/configuration foundations, responsive components, and live Phase 1 schema are implemented. Real Super Admin activation remains intentionally deferred to the final access ceremony. Physical-device authentication delivery checks remain.
+
+### Phase 2 — 90%
+
+Clinic ownership/memberships, one-person and multi-clinic dentists, private credential evidence, approval history, services, prices/deposits, schedules, breaks/exceptions, availability, Admin review, and clinic invitations are implemented. Hosted migration and all 71 pgTAP assertions pass; `clinic-invite` is deployed. Remaining: authenticated invitation delivery/failure testing and physical iOS/Android accessibility/device runs.
+
+### Phase 3 — 89%
+
+Family profiles, location fallback, dark map/list discovery, filters/ranking, trusted availability, ten-minute holds, exclusion-protected booking, mock confirmation, receipts, QR check-in, realtime-aware operations, walk-ins, cancellations/rescheduling, waitlist offers, no-shows, reviews, chat, and notification outbox are implemented. Hosted migration and all 125 pgTAP assertions pass. Remaining: production map provider, deployed notification processing, physical QR/realtime/Maestro checks, and real payment transition.
+
+### Phase 4 — 90%
+
+Medical history, allergies, encounters, diagnoses, adult/primary FDI odontograms, treatment plans, private media, prescriptions/PDFs, versioned bilingual consent, strict clinical RLS, consent revocation, finalized-only patient access, and audited Super Admin clinical snapshots are implemented. Hosted migration and all 94 pgTAP assertions pass; private prescription generation is deployed. Remaining: authenticated Storage delivery testing, physical file/device checks, and practicing-dentist validation.
+
+### Phase 5 — 81%
+
+bKash/Nagad server adapters, signed idempotent callbacks/refunds, invoices, commission/payables, expenses/payouts, reconciliation, stock/lots/expiry, suppliers/purchasing, labs, and RevenueCat synchronization are implemented with client and Admin surfaces. Hosted migration and all 87 pgTAP assertions pass. Remaining external gates are merchant certification/credentials, live payment and refund reconciliation, RevenueCat store products and device purchases/restores, and pilot payout acceptance.
+
+### Phase 6 — 77%
+
+Dentist AI drafting, photo-quality/oral-photo tasks, separately gated experimental X-ray observations, patient symptom/general guidance and record explanation, prompt versions, raw/safe/final output separation, mandatory field-by-field dentist review, usage/cost audit, rate limiting, write-only Vault key rotation, notification worker, feature flags/limits, and Super Admin oversight/configuration workspaces are implemented. AI feature flags and subscription-aware quotas are database-enforced; dentist review and clinical application are atomic; failed notification workers recover through a processing lease. Hosted migration and all 75 Phase 6 pgTAP assertions pass. Legal drafts, production runbook, backup/restore procedure, and AI safety fixtures exist.
+
+All AI/key-rotation/notification functions are deployed, but their provider-dependent success paths remain intentionally unconfigured. User, support-case, audit, and AI oversight are currently read-only investigation surfaces; operational assignment/resolution, moderation, and refund actions remain a production gate. Remaining: review the custom-auth gateway setting before provider webhooks/workers go live, enter a real AI key through the write-only Super Admin control, configure push/email/SMS providers, perform a backup/restore drill, run physical iOS/Android Maestro and accessibility checks, complete legal/clinical review, activate real Super Admin accounts, prepare signed store builds, and complete the closed-clinic pilot.
+
+## Honest completion boundary
+
+The application is a broad, working client-demo build with live schema and verified server authorization. It is **not production-complete** until the external provider, physical-device, legal, clinical, backup, store, and pilot gates above are documented. Do not mark any external integration as verified merely because its adapter or mock succeeds.

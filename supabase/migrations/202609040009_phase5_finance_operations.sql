@@ -1,6 +1,6 @@
 begin;
 
-create type public.payment_provider as enum ('bkash','nagad');
+create type public.payment_provider as enum ('mock','bkash','nagad');
 create type public.payment_state as enum ('created','pending','succeeded','failed','refunded','partially_refunded');
 create type public.invoice_state as enum ('draft','issued','partially_paid','paid','void');
 create type public.stock_movement_type as enum ('receipt','consumption','adjustment_in','adjustment_out','expiry','return');
@@ -47,15 +47,60 @@ create table public.invoice_items (
   created_at timestamptz not null default now()
 );
 
-create table public.payment_transactions (
-  id uuid primary key default gen_random_uuid(), provider public.payment_provider not null, appointment_id uuid references public.appointments(id) on delete restrict,
-  invoice_id uuid references public.invoices(id) on delete restrict, patient_profile_id uuid not null references public.patient_profiles(id) on delete restrict,
-  clinic_id uuid not null references public.clinics(id) on delete restrict, amount_bdt numeric(12,2) not null check(amount_bdt>0), currency text not null default 'BDT' check(currency='BDT'),
-  status public.payment_state not null default 'created', provider_payment_id text, provider_checkout_url text,
-  idempotency_key text not null unique, provider_payload jsonb not null default '{}'::jsonb, confirmed_at timestamptz,
-  created_by uuid not null references auth.users(id) on delete restrict, created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
-  check(appointment_id is not null or invoice_id is not null), unique(provider,provider_payment_id)
-);
+-- Phase 3 already owns the mock-deposit ledger. Evolve that table in place so
+-- previously issued receipts and the preview checkout continue to work while
+-- Phase 5 adds real provider, invoice, reconciliation, and refund fields.
+alter table public.payment_transactions drop constraint if exists payment_transactions_provider_check;
+alter table public.payment_transactions alter column provider type public.payment_provider using provider::public.payment_provider;
+alter table public.payment_transactions alter column status drop default;
+alter table public.payment_transactions alter column status type public.payment_state using status::text::public.payment_state;
+alter table public.payment_transactions alter column status set default 'created'::public.payment_state;
+alter table public.payment_transactions alter column appointment_id drop not null;
+alter table public.payment_transactions alter column provider_reference drop not null;
+alter table public.payment_transactions alter column kind set default 'deposit';
+alter table public.payment_transactions alter column receipt_number drop not null;
+alter table public.payment_transactions
+  add column invoice_id uuid references public.invoices(id) on delete restrict,
+  add column patient_profile_id uuid references public.patient_profiles(id) on delete restrict,
+  add column clinic_id uuid references public.clinics(id) on delete restrict,
+  add column currency text not null default 'BDT' check(currency='BDT'),
+  add column provider_payment_id text,
+  add column provider_checkout_url text,
+  add column provider_payload jsonb not null default '{}'::jsonb,
+  add column created_by uuid references auth.users(id) on delete restrict;
+
+update public.payment_transactions p
+set patient_profile_id=a.patient_profile_id,
+    clinic_id=a.clinic_id,
+    created_by=a.booked_by,
+    provider_payment_id=nullif(p.provider_reference,'')
+from public.appointments a
+where a.id=p.appointment_id;
+
+alter table public.payment_transactions
+  alter column patient_profile_id set not null,
+  alter column clinic_id set not null,
+  alter column created_by set not null,
+  add constraint payment_transaction_has_source check(appointment_id is not null or invoice_id is not null);
+
+create unique index payment_transactions_provider_payment_unique
+  on public.payment_transactions(provider,provider_payment_id)
+  where provider_payment_id is not null;
+
+create or replace function public.hydrate_payment_transaction_context() returns trigger language plpgsql security definer set search_path=''
+as $$ declare appointment public.appointments%rowtype; begin
+  if new.appointment_id is not null and (new.patient_profile_id is null or new.clinic_id is null or new.created_by is null) then
+    select * into appointment from public.appointments where id=new.appointment_id;
+    if not found then raise exception using errcode='23503',message='APPOINTMENT_NOT_FOUND'; end if;
+    new.patient_profile_id:=coalesce(new.patient_profile_id,appointment.patient_profile_id);
+    new.clinic_id:=coalesce(new.clinic_id,appointment.clinic_id);
+    new.created_by:=coalesce(new.created_by,auth.uid(),appointment.booked_by);
+  end if;
+  if new.provider_payment_id is null then new.provider_payment_id:=nullif(new.provider_reference,''); end if;
+  return new;
+end $$;
+create trigger payments_hydrate_context before insert or update of appointment_id,provider_reference on public.payment_transactions
+for each row execute function public.hydrate_payment_transaction_context();
 create index payment_transactions_reconcile_idx on public.payment_transactions(provider,status,created_at);
 
 create table public.payment_webhook_events (
@@ -427,6 +472,7 @@ as $$ begin if not public.has_clinic_role(target_clinic_id,array['clinic_owner',
   return query select coalesce(sum(case when l.entry_type='payment' then l.amount_bdt else 0 end),0),abs(coalesce(sum(case when l.entry_type='refund' then l.amount_bdt else 0 end),0)),abs(coalesce(sum(case when l.entry_type='commission' then l.amount_bdt else 0 end),0)),coalesce((select sum(e.amount_bdt) from public.expenses e where e.clinic_id=target_clinic_id and e.incurred_on between from_date and to_date),0),abs(coalesce(sum(case when l.entry_type='payout' then l.amount_bdt else 0 end),0)),coalesce(sum(l.amount_bdt),0) from public.clinic_ledger_entries l where l.clinic_id=target_clinic_id and l.created_at::date between from_date and to_date; end $$;
 
 create trigger invoices_touch_updated_at before update on public.invoices for each row execute function public.touch_updated_at();
+drop trigger if exists payments_touch_updated_at on public.payment_transactions;
 create trigger payments_touch_updated_at before update on public.payment_transactions for each row execute function public.touch_updated_at();
 create trigger refunds_touch_updated_at before update on public.refunds for each row execute function public.touch_updated_at();
 create trigger expenses_touch_updated_at before update on public.expenses for each row execute function public.touch_updated_at();

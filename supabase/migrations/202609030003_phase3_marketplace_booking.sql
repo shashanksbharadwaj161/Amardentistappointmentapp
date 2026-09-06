@@ -1,5 +1,8 @@
 begin;
 
+create extension if not exists btree_gist with schema extensions;
+set local search_path = public, extensions;
+
 create type public.patient_relationship as enum ('self', 'child', 'spouse', 'parent', 'sibling', 'other');
 create type public.appointment_status as enum ('confirmed', 'checked_in', 'in_progress', 'completed', 'cancelled', 'no_show');
 create type public.appointment_hold_status as enum ('held', 'consumed', 'expired', 'released');
@@ -426,7 +429,7 @@ begin
   if requested_start_at <= clock_timestamp() then raise exception using errcode = '22023', message = 'SLOT_IN_PAST'; end if;
   calculated_end := requested_start_at + make_interval(mins => service_record.duration_minutes);
   perform pg_advisory_xact_lock(hashtextextended(target_dentist_id::text || ':' || requested_start_at::text, 0));
-  update public.appointment_holds set status = 'expired' where status = 'held' and expires_at <= clock_timestamp();
+  update public.appointment_holds h set status = 'expired' where h.status = 'held' and h.expires_at <= clock_timestamp();
   if not exists (
     select 1 from public.available_clinic_slots(service_record.clinic_id, target_dentist_id, target_service_id,
       (requested_start_at at time zone 'Asia/Dhaka')::date, (requested_start_at at time zone 'Asia/Dhaka')::date) slot
@@ -512,7 +515,7 @@ begin
   if appointment_record.status <> 'confirmed' then raise exception using errcode = '22023', message = 'APPOINTMENT_NOT_CANCELLABLE'; end if;
   disposition := case when appointment_record.start_at >= clock_timestamp() + interval '24 hours' then 'refundable' else 'forfeited' end;
   update public.appointments set status = 'cancelled', cancellation_disposition = disposition,
-    cancellation_reason = nullif(trim(cancellation_reason), ''), cancelled_at = clock_timestamp() where id = target_appointment_id;
+    cancellation_reason = nullif(trim($2), ''), cancelled_at = clock_timestamp() where id = target_appointment_id;
   insert into public.appointment_events (appointment_id, actor_id, event_type, from_status, to_status, metadata)
   values (target_appointment_id, auth.uid(), 'appointment.cancelled', 'confirmed', 'cancelled', jsonb_build_object('deposit', disposition));
   perform public.write_audit('appointment.cancelled', 'appointment', target_appointment_id::text, jsonb_build_object('deposit', disposition));

@@ -41,6 +41,7 @@ export default function RootLayout() {
               <Stack.Screen name="professional/inbox" />
               <Stack.Screen name="professional/encounter" />
               <Stack.Screen name="professional/business" />
+              <Stack.Screen name="professional/ai-review" />
               <Stack.Screen name="patient/discover" />
               <Stack.Screen name="patient/dentist" />
               <Stack.Screen name="patient/profiles" />
@@ -51,6 +52,7 @@ export default function RootLayout() {
               <Stack.Screen name="patient/records" />
               <Stack.Screen name="patient/consent" />
               <Stack.Screen name="patient/payments" />
+              <Stack.Screen name="patient/assistant" />
             </Stack>
           </AuthProvider>
         </LocaleProvider>

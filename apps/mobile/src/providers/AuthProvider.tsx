@@ -135,7 +135,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   const setMode = useCallback(async (mode: AppMode) => {
     if (!profile) return 'A connected account is required.'
-    if (!supabase && demoEnabled) {
+    if (demoEnabled && profile.id === '00000000-0000-4000-8000-000000000001') {
       setProfile({ ...profile, activeMode: mode })
       return null
     }
