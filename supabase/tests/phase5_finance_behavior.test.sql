@@ -1,5 +1,5 @@
 begin;
-select plan(26);
+select plan(29);
 insert into auth.users(id,aud,role,email,email_confirmed_at,raw_user_meta_data) values
 ('51000000-0000-4000-8000-000000000001','authenticated','authenticated','finance-owner@example.test',now(),'{"full_name":"Finance Owner"}'),
 ('51000000-0000-4000-8000-000000000002','authenticated','authenticated','finance-patient@example.test',now(),'{"full_name":"Finance Patient"}'),
@@ -40,6 +40,10 @@ select throws_ok($$select public.post_stock_movement('52000000-0000-4000-8000-00
 select ok(length(public.record_expense('52000000-0000-4000-8000-000000000001','Utilities','Monthly electricity',1000,current_date)::text)=36,'owner records expense');
 select ok((select gross_payments=300 and commission_total=15 and expense_total=1000 and net_payable=285 from public.clinic_finance_summary('52000000-0000-4000-8000-000000000001',current_date-1,current_date+1)),'finance report reconciles ledger and expense totals');
 select ok(length(set_config('test.refund',public.prepare_refund((select id from public.payment_transactions where idempotency_key='patient-key-1234'),100,'Approved cancellation','refund-key-1234')::text,true))=36,'owner prepares bounded refund');
+select throws_ok($$select public.prepare_refund((select id from public.payment_transactions where idempotency_key='patient-key-1234'),101,'Changed amount','refund-key-1234')$$,'22023','IDEMPOTENCY_KEY_REUSED','refund retry cannot change amount');
+select throws_ok($$select public.prepare_refund((select id from public.payment_transactions where idempotency_key='patient-key-1234'),201,'Exceeds unreserved balance','refund-key-second')$$,'22023','REFUND_AMOUNT_INVALID','pending refund reserves balance');
+set local "request.jwt.claim.sub"='51000000-0000-4000-8000-000000000003';
+select throws_ok($$select public.prepare_refund('55000000-0000-4000-8000-000000000001',100,'Stolen retry key','refund-key-1234')$$,'42501','REFUND_DENIED','idempotency cannot bypass authorization');
 reset role;select ok(public.apply_refund_result(current_setting('test.refund')::uuid,'succeeded','refund-provider-1','{}'),'provider-confirmed refund applies once');
 select ok(not public.apply_refund_result(current_setting('test.refund')::uuid,'succeeded','refund-provider-1','{}'),'refund replay is harmless');
 select is((select status::text from public.payment_transactions where idempotency_key='patient-key-1234'),'partially_refunded','payment reflects partial refund');

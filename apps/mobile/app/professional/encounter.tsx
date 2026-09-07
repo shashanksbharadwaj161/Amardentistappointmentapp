@@ -29,6 +29,8 @@ export default function ClinicalEncounterScreen() {
   const [diagnosis, setDiagnosis] = useState('')
   const [diagnosisCode, setDiagnosisCode] = useState('')
   const [toothCode, setToothCode] = useState('')
+  const [dentition, setDentition] = useState<'adult'|'primary'>('adult')
+  const [surface, setSurface] = useState<'whole'|'mesial'|'distal'|'buccal'|'lingual'|'occlusal'|'incisal'>('whole')
   const [finding, setFinding] = useState('')
   const [medicine, setMedicine] = useState('')
   const [strength, setStrength] = useState('')
@@ -72,7 +74,7 @@ export default function ClinicalEncounterScreen() {
     try { await addDiagnosis(parsed.data); setDiagnosis(''); setDiagnosisCode(''); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
   }
   const chartTooth = async () => {
-    const parsed = toothObservationSchema.safeParse({ encounterId: record.data?.encounter.id, dentition: 'adult', fdiToothCode: toothCode, surface: 'whole', finding, changeReason: 'Odontogram reviewed' })
+    const parsed = toothObservationSchema.safeParse({ encounterId: record.data?.encounter.id, dentition, fdiToothCode: toothCode, surface, finding, changeReason: 'Odontogram reviewed' })
     if (!parsed.success) return setMessage(t('invalidFdiTooth'))
     setBusy('tooth'); setMessage(null)
     try { await saveToothObservation(parsed.data); setToothCode(''); setFinding(''); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
@@ -133,7 +135,10 @@ export default function ClinicalEncounterScreen() {
           {editable ? <><View style={styles.rowFields}><View style={styles.codeField}><Field label={t('codeOptional')} value={diagnosisCode} onChangeText={setDiagnosisCode} /></View><View style={styles.flex}><Field label={t('diagnosis')} value={diagnosis} onChangeText={setDiagnosis} /></View></View><Button label={t('addDiagnosis')} variant="secondary" loading={busy === 'diagnosis'} onPress={() => void addDx()} /></> : null}
         </SectionCard>
         <SectionCard eyebrow="FDI" title={t('odontogram')}>
-          {record.data.teeth.map((item) => <View key={item.id} style={styles.item}><CircleDot size={17} color={colors.teal} /><Text style={styles.itemText}>{item.fdiToothCode} · {item.surface} · {item.finding}</Text></View>)}
+          <View style={styles.rowFields}>{(['adult','primary'] as const).map(value=><Button key={value} label={t(value==='adult'?'adultTeeth':'primaryTeeth')} variant={dentition===value?'primary':'secondary'} accessibilityState={{selected:dentition===value}} onPress={()=>{setDentition(value);setToothCode('')}}/>)}</View>
+          {(dentition==='adult'?[[18,17,16,15,14,13,12,11,21,22,23,24,25,26,27,28],[48,47,46,45,44,43,42,41,31,32,33,34,35,36,37,38]]:[[55,54,53,52,51,61,62,63,64,65],[85,84,83,82,81,71,72,73,74,75]]).map((arch,index)=><View key={index} style={styles.arch}><Text style={styles.itemText}>{t(index===0?'upperArch':'lowerArch')}</Text><View style={styles.rowFields}>{arch.map(code=><Pressable key={code} accessibilityRole="button" accessibilityLabel={`${t('fdiTooth')} ${code}`} accessibilityState={{selected:toothCode===String(code),disabled:!editable}} disabled={!editable} onPress={()=>setToothCode(String(code))} style={[styles.tooth,toothCode===String(code)&&styles.toothSelected]}><Text style={[styles.toothText,toothCode===String(code)&&styles.toothTextSelected]}>{code}</Text></Pressable>)}</View></View>)}
+          {record.data.teeth.filter(item=>item.dentition===dentition).map((item) => <View key={item.id} style={styles.item}><CircleDot size={17} color={colors.teal} /><Text style={styles.itemText}>{item.fdiToothCode} · {t(item.surface)} · {item.finding}</Text></View>)}
+          {editable?<><Text style={styles.itemText}>{t('toothSurface')}</Text><View style={styles.rowFields}>{(['whole','mesial','distal','buccal','lingual','occlusal','incisal'] as const).map(value=><Button key={value} label={t(value)} variant={surface===value?'primary':'secondary'} accessibilityState={{selected:surface===value}} onPress={()=>setSurface(value)}/>)}</View></>:null}
           {editable ? <><View style={styles.rowFields}><View style={styles.codeField}><Field label={t('fdiTooth')} value={toothCode} onChangeText={setToothCode} keyboardType="number-pad" maxLength={2} /></View><View style={styles.flex}><Field label={t('finding')} value={finding} onChangeText={setFinding} /></View></View><Button label={t('chartTooth')} variant="secondary" loading={busy === 'tooth'} onPress={() => void chartTooth()} /></> : null}
         </SectionCard>
       </View>
@@ -159,5 +164,6 @@ export default function ClinicalEncounterScreen() {
 }
 
 const styles = StyleSheet.create({
+  arch:{gap:spacing.sm,marginVertical:spacing.sm},tooth:{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center',borderWidth:1,borderColor:colors.line,borderRadius:radius.md,backgroundColor:colors.paper},toothSelected:{backgroundColor:colors.ink},toothText:{color:colors.ink,fontSize:15,fontWeight:'700'},toothTextSelected:{color:colors.paper},
   screen: { paddingTop: spacing.xl, gap: spacing.xl }, heading: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }, headingCopy: { flex: 1, gap: 5 }, kicker: { color: colors.teal, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' }, title: { color: colors.inkDeep, fontSize: 31, fontWeight: '800', letterSpacing: -0.9 }, subtitle: { color: colors.muted, fontSize: 13, lineHeight: 20 }, notice: { color: colors.teal, backgroundColor: colors.mintSoft, padding: spacing.md, borderRadius: radius.md }, aiCard:{flexDirection:'row',alignItems:'flex-start',gap:spacing.md,padding:spacing.lg,borderRadius:radius.lg,backgroundColor:colors.inkDeep},aiTitle:{color:colors.paper,fontSize:16,fontWeight:'800'},aiBody:{color:'#B8C8D3',fontSize:12,lineHeight:18,marginTop:4}, columns: { gap: spacing.xl }, columnsWide: { flexDirection: 'row', alignItems: 'flex-start' }, column: { flex: 1, minWidth: 0, gap: spacing.xl }, rowFields: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }, codeField: { width: 110 }, flex: { flex: 1, minWidth: 160 }, item: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line }, itemText: { flex: 1, color: colors.text, fontSize: 12, lineHeight: 18 }, medicineGrid: { gap: spacing.sm }, mediaIntro: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, mediaActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, finalBadge: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, finalText: { color: colors.success, fontWeight: '800' }, finalize: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, padding: spacing.xl, borderRadius: radius.lg, backgroundColor: colors.inkDeep }, finalizeTitle: { color: colors.paper, fontSize: 18, fontWeight: '800' }, finalizeBody: { color: '#B8C8D3', fontSize: 12, lineHeight: 18, marginTop: 4 },
 })

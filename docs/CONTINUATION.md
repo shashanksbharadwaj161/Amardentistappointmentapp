@@ -1,6 +1,8 @@
 # Amar Dentist continuation guide
 
-Updated: 2026-09-05
+Updated: 2026-09-07
+
+**Read `docs/CHECKPOINT_2026-09-07.md` first. It supersedes the old completion percentage and broad implementation claims below, records the latest live migration/tests, and identifies missing UI workflows that are not blocked on credentials.**
 
 This is the authoritative no-context handoff. A new task must read this file, `PRODUCT.md`, `DESIGN.md`, `docs/PROGRESS.md`, and `docs/PRODUCTION_READINESS.md` before changing code.
 

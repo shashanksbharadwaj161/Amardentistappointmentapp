@@ -1,6 +1,8 @@
 # Build progress
 
-Updated: 2026-09-06
+Updated: 2026-09-07
+
+**Status correction:** the 87.84% estimate and phase claims below are historical, not current acceptance evidence. See `CHECKPOINT_2026-09-07.md` for the latest repairs, verified results and newly identified implementation gaps. No phase is production-closed. A replacement percentage must be based on requirement-level verified journeys, not screen/table counts.
 
 Progress is gate-weighted, not based on screens or file count. A phase earns full credit only after its database, security, provider, physical-device, visual, and pilot gates pass.
 

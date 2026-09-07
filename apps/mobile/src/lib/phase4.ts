@@ -1,4 +1,5 @@
 import type { AllergyInput, ClinicConsentInput, ClinicalDiagnosisInput, ClinicalEncounterInput, MedicalHistoryInput, PrescriptionDraftInput, ToothObservationInput, TreatmentPlanInput } from '@amar-dentist/domain'
+import { toothSurfaceSchema } from '@amar-dentist/domain'
 import { supabase } from './supabase'
 
 const previewEnabled = process.env.EXPO_PUBLIC_DEMO_MODE === 'true'
@@ -24,7 +25,7 @@ export type ClinicalEncounterSummary = {
 }
 
 export type ClinicalDiagnosisSummary = { id: string; code: string | null; diagnosis: string; notes: string; finalizedAt: string | null }
-export type ToothObservationSummary = { id: string; dentition: 'adult' | 'primary'; fdiToothCode: string; surface: string; finding: string; finalizedAt: string | null }
+export type ToothObservationSummary = { id: string; dentition: 'adult' | 'primary'; fdiToothCode: string; surface: ToothObservationInput['surface']; finding: string; finalizedAt: string | null }
 export type PrescriptionSummary = { id: string; status: string; instructions: string; finalizedAt: string | null; documentPath: string | null; items: Array<{ id: string; medicineName: string; strength: string; dosage: string; route: string; frequency: string; duration: string; instructions: string }> }
 export type TreatmentPlanSummary = { id: string; title: string; status: string; recordStatus: string; notes: string; finalizedAt: string | null; items: Array<{ id: string; description: string; fdiToothCode: string | null; sequenceNumber: number; status: string; estimatedPriceBdt: number | null }> }
 export type MedicalHistorySummary = { conditions: string[]; currentMedications: string[]; priorSurgeries: string[]; pregnancyStatus: string | null; tobaccoUse: string | null; notes: string }
@@ -61,7 +62,7 @@ function mapBundle(encounter: Record<string, unknown>, diagnoses: Array<Record<s
   return {
     encounter: mapEncounter(encounter),
     diagnoses: diagnoses.map((row) => ({ id: String(row.id), code: row.code ? String(row.code) : null, diagnosis: String(row.diagnosis), notes: String(row.notes ?? ''), finalizedAt: row.finalized_at ? String(row.finalized_at) : null })),
-    teeth: teeth.map((row) => ({ id: String(row.id), dentition: row.dentition as 'adult' | 'primary', fdiToothCode: String(row.fdi_tooth_code), surface: String(row.surface), finding: String(row.finding), finalizedAt: row.finalized_at ? String(row.finalized_at) : null })),
+    teeth: teeth.map((row) => ({ id: String(row.id), dentition: row.dentition as 'adult' | 'primary', fdiToothCode: String(row.fdi_tooth_code), surface: toothSurfaceSchema.parse(row.surface), finding: String(row.finding), finalizedAt: row.finalized_at ? String(row.finalized_at) : null })),
     prescriptions: prescriptions.map((row) => ({ id: String(row.id), status: String(row.status), instructions: String(row.instructions ?? ''), finalizedAt: row.finalized_at ? String(row.finalized_at) : null, documentPath: row.document_path ? String(row.document_path) : null, items: ((row.prescription_items as Array<Record<string, unknown>> | undefined) ?? []).map((item) => ({ id: String(item.id), medicineName: String(item.medicine_name), strength: String(item.strength ?? ''), dosage: String(item.dosage), route: String(item.route), frequency: String(item.frequency), duration: String(item.duration), instructions: String(item.instructions ?? '') })) })),
     treatmentPlans: plans.map((row) => ({ id: String(row.id), title: String(row.title), status: String(row.status), recordStatus: String(row.record_status), notes: String(row.notes ?? ''), finalizedAt: row.finalized_at ? String(row.finalized_at) : null, items: ((row.treatment_plan_items as Array<Record<string, unknown>> | undefined) ?? []).map((item) => ({ id: String(item.id), description: String(item.description), fdiToothCode: item.fdi_tooth_code ? String(item.fdi_tooth_code) : null, sequenceNumber: Number(item.sequence_number), status: String(item.status), estimatedPriceBdt: item.estimated_price_bdt === null ? null : Number(item.estimated_price_bdt) })) })),
     media: media.map((row) => ({ id: String(row.id), kind: row.kind as 'photograph' | 'xray', storagePath: String(row.storage_path), filename: String(row.filename), contentType: String(row.content_type), caption: String(row.caption ?? ''), finalizedAt: row.finalized_at ? String(row.finalized_at) : null })),

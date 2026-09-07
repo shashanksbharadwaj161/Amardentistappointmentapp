@@ -6,7 +6,7 @@ The built-in preview uses fictional Bangladesh data only: Shapla Dental Studio, 
 
 ## Before a closed pilot
 
-- Confirm the hosted migration history still contains every version through `202609050014` and rerun all pgTAP suites after any database change.
+- Confirm the hosted migration history still contains every version through `202609060015` and rerun all pgTAP suites after any database change. Read `CHECKPOINT_2026-09-07.md` for implementation gaps that must be completed before pilot acceptance.
 - Confirm the 10 deployed invitation, prescription, payment, subscription, AI, key-rotation, and notification functions match the repository commit; then verify their authenticated or signed success/failure paths.
 - Activate the two authorized Super Admin accounts only at the final access ceremony. Do not hardcode passwords.
 - Add the AI key through the Super Admin write-only control, then confirm only a masked suffix is returned.
