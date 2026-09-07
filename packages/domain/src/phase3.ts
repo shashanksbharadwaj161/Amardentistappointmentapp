@@ -100,4 +100,6 @@ export type MarketplaceDentist = {
   distanceKm: number | null
   nextAvailableAt: string | null
   openNow: boolean
+  latitude: number | null
+  longitude: number | null
 }

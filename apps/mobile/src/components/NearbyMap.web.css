@@ -1,0 +1,47 @@
+.amar-map-tiles {
+  filter: grayscale(.82) invert(1) contrast(1.12) brightness(.62) hue-rotate(168deg);
+}
+
+.leaflet-container {
+  font-family: Inter, system-ui, sans-serif;
+}
+
+.leaflet-control-zoom a {
+  background: rgba(12, 28, 45, .92);
+  border-color: rgba(255, 255, 255, .12);
+  color: #fff;
+}
+
+.leaflet-control-zoom a:hover,
+.leaflet-control-zoom a:focus-visible {
+  background: #183951;
+  color: #fff;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #fff;
+  color: #0c1c2d;
+}
+
+.leaflet-popup-content {
+  line-height: 1.5;
+  margin: 14px 16px;
+}
+
+.leaflet-popup-content button {
+  background: #0c1c2d;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  margin-top: 10px;
+  padding: 8px 12px;
+}
+
+.leaflet-popup-content button:focus-visible {
+  outline: 3px solid #79d2bd;
+  outline-offset: 2px;
+}

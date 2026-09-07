@@ -38,7 +38,7 @@ describe('Phase 3 booking rules', () => {
   })
 
   it('ranks strong nearby availability without hiding unrated clinics', () => {
-    const base: MarketplaceDentist = { dentistId: 'd', clinicId: 'c', clinicName: 'B Clinic', dentistName: 'Dentist', professionalTitle: 'Dentist', specialties: [], languages: ['bn'], gender: null, yearsExperience: 3, serviceId: 's', serviceName: 'Consultation', durationMinutes: 30, priceBdt: 800, depositBdt: 200, rating: 4.7, reviewCount: 30, distanceKm: 3, nextAvailableAt: '2026-09-03T12:00:00.000Z', openNow: true }
+    const base: MarketplaceDentist = { dentistId: 'd', clinicId: 'c', clinicName: 'B Clinic', dentistName: 'Dentist', professionalTitle: 'Dentist', specialties: [], languages: ['bn'], gender: null, yearsExperience: 3, serviceId: 's', serviceName: 'Consultation', durationMinutes: 30, priceBdt: 800, depositBdt: 200, rating: 4.7, reviewCount: 30, distanceKm: 3, nextAvailableAt: '2026-09-03T12:00:00.000Z', openNow: true, latitude: 23.8, longitude: 90.4 }
     const ranked = rankMarketplace([
       { ...base, clinicId: 'far', clinicName: 'Far Clinic', distanceKm: 90, rating: 5 },
       { ...base, clinicId: 'near', clinicName: 'Near Clinic' },
