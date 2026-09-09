@@ -103,3 +103,27 @@ export type MarketplaceDentist = {
   latitude: number | null
   longitude: number | null
 }
+
+export type MapCoordinates = { latitude: number; longitude: number }
+
+/** PostgREST can return numeric values as strings; missing values must never become 0. */
+export function readMapCoordinates(latitude: unknown, longitude: unknown): MapCoordinates | null {
+  const readNumber = (value: unknown) => typeof value === 'number'
+    ? value
+    : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN
+  const lat = readNumber(latitude)
+  const lng = readNumber(longitude)
+  return Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng) && Math.abs(lng) <= 180
+    ? { latitude: lat, longitude: lng }
+    : null
+}
+
+/** Straight-line distance for preview data. Hosted search uses PostGIS geography. */
+export function distanceBetweenKm(origin: MapCoordinates, destination: MapCoordinates): number {
+  const radians = (degrees: number) => degrees * Math.PI / 180
+  const latitudeDelta = radians(destination.latitude - origin.latitude)
+  const longitudeDelta = radians(destination.longitude - origin.longitude)
+  const haversine = Math.sin(latitudeDelta / 2) ** 2
+    + Math.cos(radians(origin.latitude)) * Math.cos(radians(destination.latitude)) * Math.sin(longitudeDelta / 2) ** 2
+  return 6371.0088 * 2 * Math.asin(Math.sqrt(Math.min(1, Math.max(0, haversine))))
+}

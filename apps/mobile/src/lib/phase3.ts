@@ -1,5 +1,6 @@
-import type { GuestWalkInInput, MarketplaceDentist, MarketplaceFilter, PatientProfileInput, ReviewInput, WaitlistRequestInput } from '@amar-dentist/domain'
+import { distanceBetweenKm, marketplaceFilterSchema, readMapCoordinates, type GuestWalkInInput, type MarketplaceDentist, type MarketplaceFilter, type PatientProfileInput, type ReviewInput, type WaitlistRequestInput } from '@amar-dentist/domain'
 import * as Location from 'expo-location'
+import { Platform } from 'react-native'
 import { getProfessionalOverview } from './phase2'
 import { supabase } from './supabase'
 
@@ -22,6 +23,7 @@ const previewClinicId = '30000000-0000-4000-8000-000000000001'
 const previewDentistId = '20000000-0000-4000-8000-000000000002'
 const previewServiceId = '40000000-0000-4000-8000-000000000001'
 const previewEnabled = process.env.EXPO_PUBLIC_DEMO_MODE === 'true'
+export const isMarketplacePreview = !supabase || previewEnabled
 const requestId = () => `amar-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`
 
 function previewFutureDate(days: number, hour: number, minute = 0): Date {
@@ -38,23 +40,51 @@ const demoMarketplace: MarketplaceDentist[] = [
 ]
 
 export async function requestCurrentLocation(): Promise<{ latitude: number; longitude: number } | null> {
+  if (Platform.OS === 'web') {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) throw new Error('LOCATION_UNAVAILABLE')
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('LOCATION_TIMEOUT')), 15_000)
+      navigator.geolocation.getCurrentPosition(
+        ({ coords }) => { clearTimeout(timeout); resolve(readMapCoordinates(coords.latitude, coords.longitude)) },
+        (error) => {
+          clearTimeout(timeout)
+          if (error.code === 1) resolve(null)
+          else reject(new Error(error.code === 3 ? 'LOCATION_TIMEOUT' : 'LOCATION_UNAVAILABLE'))
+        },
+        { enableHighAccuracy: false, maximumAge: 60_000, timeout: 15_000 },
+      )
+    })
+  }
   const permission = await Location.requestForegroundPermissionsAsync()
   if (permission.status !== Location.PermissionStatus.GRANTED) return null
-  const result = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
-  return { latitude: result.coords.latitude, longitude: result.coords.longitude }
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    const result = await Promise.race([
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+      new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('LOCATION_TIMEOUT')), 15_000) }),
+    ])
+    return readMapCoordinates(result.coords.latitude, result.coords.longitude)
+  } finally { clearTimeout(timeout) }
 }
 
-export async function searchMarketplace(filters: MarketplaceFilter): Promise<MarketplaceDentist[]> {
-  if (!supabase || previewEnabled) {
+export async function searchMarketplace(input: MarketplaceFilter): Promise<MarketplaceDentist[]> {
+  const filters = marketplaceFilterSchema.parse(input)
+  if (isMarketplacePreview) {
     const term = filters.query.toLowerCase()
-    return demoMarketplace.filter((item) => (!term || `${item.dentistName} ${item.clinicName}`.toLowerCase().includes(term))
+    const origin = readMapCoordinates(filters.latitude, filters.longitude)
+    return demoMarketplace.map((item) => {
+      const destination = readMapCoordinates(item.latitude, item.longitude)
+      return { ...item, distanceKm: origin && destination ? distanceBetweenKm(origin, destination) : null }
+    }).filter((item) => (!term || `${item.dentistName} ${item.clinicName}`.toLowerCase().includes(term))
       && (!filters.specialty || item.specialties.some((specialty) => specialty.toLowerCase().includes(filters.specialty.toLowerCase())))
       && (!filters.gender || item.gender === filters.gender)
       && (!filters.language || item.languages.includes(filters.language))
       && (filters.maxPriceBdt === null || item.priceBdt <= filters.maxPriceBdt)
       && item.rating >= filters.minimumRating
-      && (!filters.openNow || item.openNow))
+      && (!filters.openNow || item.openNow)
+      && (!origin || item.distanceKm !== null && item.distanceKm <= filters.radiusKm))
   }
+  if (!supabase) throw new Error('MARKETPLACE_UNAVAILABLE')
   const { data, error } = await supabase.rpc('search_marketplace', {
     search_text: filters.query,
     specialty_filter: filters.specialty,
@@ -67,15 +97,20 @@ export async function searchMarketplace(filters: MarketplaceFilter): Promise<Mar
     radius_km: filters.radiusKm,
   })
   if (error) throw new Error(error.message)
-  return (data ?? []).map((row: Record<string, unknown>) => ({
-    dentistId: String(row.dentist_id), clinicId: String(row.clinic_id), clinicName: String(row.clinic_name), dentistName: String(row.dentist_name),
-    professionalTitle: String(row.professional_title), specialties: row.specialties as string[], languages: row.languages as string[],
-    gender: row.gender ? String(row.gender) : null, yearsExperience: row.years_experience === null ? null : Number(row.years_experience),
-    serviceId: String(row.service_id), serviceName: String(row.service_name), durationMinutes: Number(row.duration_minutes),
-    priceBdt: Number(row.price_bdt), depositBdt: Number(row.deposit_bdt), rating: Number(row.rating), reviewCount: Number(row.review_count),
-    distanceKm: row.distance_km === null ? null : Number(row.distance_km), nextAvailableAt: null, openNow: false,
-    latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude), longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude),
-  }))
+  return (data ?? []).map((row: Record<string, unknown>): MarketplaceDentist => {
+    const coordinates = readMapCoordinates(row.latitude, row.longitude)
+    const distance = row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km)
+    return {
+      dentistId: String(row.dentist_id), clinicId: String(row.clinic_id), clinicName: String(row.clinic_name), dentistName: String(row.dentist_name),
+      professionalTitle: String(row.professional_title), specialties: row.specialties as string[], languages: row.languages as string[],
+      gender: row.gender ? String(row.gender) : null, yearsExperience: row.years_experience === null ? null : Number(row.years_experience),
+      serviceId: String(row.service_id), serviceName: String(row.service_name), durationMinutes: Number(row.duration_minutes),
+      priceBdt: Number(row.price_bdt), depositBdt: Number(row.deposit_bdt), rating: Number(row.rating), reviewCount: Number(row.review_count),
+      distanceKm: distance !== null && Number.isFinite(distance) && distance >= 0 ? distance : null,
+      nextAvailableAt: null, openNow: row.open_now === true,
+      latitude: coordinates?.latitude ?? null, longitude: coordinates?.longitude ?? null,
+    }
+  }).filter((item: MarketplaceDentist) => !filters.openNow || item.openNow)
 }
 
 export async function getPatientProfiles(userId: string): Promise<PatientProfileSummary[]> {

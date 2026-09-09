@@ -150,7 +150,8 @@ export async function getCalendarContext(userId: string, from: Date, through: Da
   if (!supabase || userId === previewId) {
     const start = new Date(from)
     const slots: LocalAvailabilitySlot[] = []
-    for (let offset = 0; offset < 7; offset += 1) {
+    const dayCount = Math.max(0, Math.min(32, Math.floor((through.getTime() - start.getTime()) / 86_400_000) + 1))
+    for (let offset = 0; offset < dayCount; offset += 1) {
       const date = new Date(start)
       date.setUTCDate(start.getUTCDate() + offset)
       if (date.getUTCDay() === 5) continue

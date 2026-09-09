@@ -1,6 +1,8 @@
 # Amar Dentist continuation guide
 
-Updated: 2026-09-07
+Updated: 2026-09-09
+
+**Latest map/calendar and navigation handoff: `docs/CHECKPOINT_2026-09-09.md`. Read it before resuming.**
 
 **Read `docs/CHECKPOINT_2026-09-07.md` first. It supersedes the old completion percentage and broad implementation claims below, records the latest live migration/tests, and identifies missing UI workflows that are not blocked on credentials.**
 

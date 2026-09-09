@@ -1,3 +1,2 @@
-import type { MarketplaceDentist } from '@amar-dentist/domain'
-type Coordinates={latitude:number;longitude:number}
-export function NearbyMap(props:{items:MarketplaceDentist[];location:Coordinates|null;onSelect:(item:MarketplaceDentist)=>void}):import('react').ReactElement
+import type { NearbyMapProps } from './NearbyMap.types'
+export function NearbyMap(props: NearbyMapProps): import('react').ReactElement

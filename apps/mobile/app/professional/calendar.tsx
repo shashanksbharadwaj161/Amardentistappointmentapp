@@ -1,108 +1,88 @@
 import { useQuery } from '@tanstack/react-query'
 import { Redirect, router, Stack } from 'expo-router'
-import { CalendarClock, CheckCircle2, Clock3, SlidersHorizontal } from 'lucide-react-native'
+import { CalendarDays, ChevronLeft, ChevronRight, Clock3, RefreshCw, SlidersHorizontal } from 'lucide-react-native'
 import { useEffect, useMemo, useState } from 'react'
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native'
 import { Button } from '../../src/components/Button'
-import { SectionCard } from '../../src/components/SectionCard'
 import { Screen } from '../../src/components/Screen'
-import { getCalendarContext, subscribeToAppointmentChanges } from '../../src/lib/phase2'
+import { getCalendarAppointments, getCalendarAvailability, getCalendarDirectory } from '../../src/lib/calendar-data'
+import { addCalendarDays, calendarWeek, clinicDate, formatCalendarDate, formatClinicTime } from '../../src/lib/calendar-dates'
+import { calendarMessages } from '../../src/lib/calendar-messages'
+import { subscribeToAppointmentChanges } from '../../src/lib/phase2'
+import { isMarketplacePreview } from '../../src/lib/phase3'
 import { useAuth } from '../../src/providers/AuthProvider'
 import { useLocale } from '../../src/providers/LocaleProvider'
-import { colors, hitTarget, radius, shadow, spacing } from '../../src/theme'
-
-function dateOnly(date: Date): string { return date.toISOString().slice(0, 10) }
+import { colors, radius } from '../../src/theme'
 
 export default function ProfessionalCalendarScreen() {
   const { profile, loading } = useAuth()
   const { locale, t } = useLocale()
+  const m = calendarMessages(locale)
+  const { width } = useWindowDimensions()
   const [view, setView] = useState<'day' | 'week'>('day')
-  const [selectedDate, setSelectedDate] = useState(dateOnly(new Date()))
-  const range = useMemo(() => {
-    const from = new Date()
-    from.setUTCHours(0, 0, 0, 0)
-    const through = new Date(from)
-    through.setUTCDate(from.getUTCDate() + 6)
-    return { from, through }
-  }, [])
-  const calendar = useQuery({
-    queryKey: ['professional-calendar', profile?.id, dateOnly(range.from)],
-    queryFn: () => getCalendarContext(profile!.id, range.from, range.through),
-    enabled: Boolean(profile),
-  })
-  useEffect(() => calendar.data?.dentistId ? subscribeToAppointmentChanges(calendar.data.dentistId, () => { void calendar.refetch() }) : undefined, [calendar.data?.dentistId, calendar.refetch])
+  const [selectedDate, setSelectedDate] = useState(clinicDate())
+  const [clinicChoice, setClinicChoice] = useState<string>()
+  const [dentistChoice, setDentistChoice] = useState<string>()
+  const [serviceChoice, setServiceChoice] = useState<string>()
+  const dates = useMemo(() => calendarWeek(selectedDate), [selectedDate])
+  const directory = useQuery({ queryKey: ['calendar-directory', profile?.id, clinicChoice], queryFn: () => getCalendarDirectory(profile!.id, clinicChoice), enabled: Boolean(profile) })
+  const clinic = directory.data?.clinic
+  const dentist = directory.data?.dentists.find((item) => item.id === dentistChoice) ?? directory.data?.dentists.find((item) => item.id === profile?.id) ?? directory.data?.dentists[0]
+  const services = directory.data?.services.filter((item) => !item.dentistId || item.dentistId === dentist?.id) ?? []
+  const service = services.find((item) => item.id === serviceChoice) ?? services[0]
+  const appointments = useQuery({ queryKey: ['calendar-appointments', profile?.id, clinic?.id, dates[0]], queryFn: () => getCalendarAppointments(profile!.id, clinic!.id, dates[0]!, dates[6]!), enabled: Boolean(profile && clinic), refetchInterval: 30_000 })
+  const availability = useQuery({ queryKey: ['calendar-availability', profile?.id, clinic?.id, dentist?.id, service?.id, dates[0]], queryFn: () => getCalendarAvailability(profile!.id, clinic!.id, dentist!.id, service!.id, dates[0]!, dates[6]!), enabled: Boolean(profile && clinic && dentist && service), refetchInterval: 30_000 })
+  const refetchAppointments = appointments.refetch
+  const refetchAvailability = availability.refetch
+  useEffect(() => dentist ? subscribeToAppointmentChanges(dentist.id, () => { void refetchAppointments(); if (service) void refetchAvailability() }) : undefined, [dentist?.id, service?.id, refetchAppointments, refetchAvailability])
+  const visits = useMemo(() => (appointments.data ?? []).filter((item) => !dentist || item.dentistId === dentist.id).sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)), [appointments.data, dentist])
   if (!loading && !profile) return <Redirect href="/" />
   if (!profile) return null
-
-  const dates = Array.from({ length: 7 }, (_, index) => {
-    const value = new Date(range.from)
-    value.setUTCDate(range.from.getUTCDate() + index)
-    return value
-  })
-  const localeCode = locale === 'bn' ? 'bn-BD' : 'en-GB'
-  const selectedSlots = calendar.data?.slots.filter((slot) => slot.date === selectedDate) ?? []
-
-  return <Screen maxWidth={920} style={styles.screen}>
+  const number = (value: number) => value.toLocaleString(locale === 'bn' ? 'bn-BD' : 'en-GB')
+  const dateLabel = (value: string) => formatCalendarDate(value, locale, { weekday: 'long', month: 'long', day: 'numeric' })
+  const selectedVisits = visits.filter((item) => clinicDate(item.startAt) === selectedDate)
+  const selectedSlots = (availability.data ?? []).filter((item) => item.date === selectedDate)
+  const isUpdating = appointments.isFetching || availability.isFetching
+  const refresh = () => { void directory.refetch(); if (clinic) void appointments.refetch(); if (clinic && dentist && service) void availability.refetch() }
+  const statusLabel = (status: string) => ({ confirmed: t('statusConfirmed'), checked_in: t('statusCheckedIn'), completed: t('statusCompleted'), no_show: t('statusNoShow'), cancelled: m.cancelled, in_progress: m.inProgress }[status] ?? status.replaceAll('_', ' '))
+  return <Screen maxWidth={1200} style={styles.screen}>
     <Stack.Screen options={{ title: t('calendar'), headerBackTitle: t('back') }} />
-    <View style={styles.headingRow}><View style={styles.headingCopy}><Text style={styles.kicker}>{calendar.data?.clinic?.name ?? t('professionalWorkspace')}</Text><Text style={styles.title}>{t('calendar')}</Text><Text style={styles.subtitle}>{calendar.data?.service ? `${calendar.data.service.name} · ${calendar.data.service.durationMinutes} min` : t('noService')}</Text></View><Pressable accessibilityRole="button" accessibilityLabel={t('manageSchedule')} style={styles.settings} onPress={() => router.push('/professional/manage-schedule')}><SlidersHorizontal size={21} color={colors.ink} /></Pressable></View>
-    <View style={styles.segment}>{(['day', 'week'] as const).map((option) => <Pressable key={option} accessibilityRole="tab" accessibilityState={{ selected: view === option }} style={[styles.segmentButton, view === option && styles.segmentActive]} onPress={() => setView(option)}><Text style={[styles.segmentText, view === option && styles.segmentTextActive]}>{t(option)}</Text></Pressable>)}</View>
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateStrip}>{dates.map((date) => {
-      const value = dateOnly(date)
-      const selected = selectedDate === value
-      return <Pressable key={value} accessibilityRole="button" accessibilityState={{ selected }} style={[styles.dateButton, selected && styles.dateActive]} onPress={() => setSelectedDate(value)}><Text style={[styles.dayName, selected && styles.dateTextActive]}>{new Intl.DateTimeFormat(localeCode, { weekday: 'short', timeZone: 'UTC' }).format(date)}</Text><Text style={[styles.dayNumber, selected && styles.dateTextActive]}>{new Intl.DateTimeFormat(localeCode, { day: 'numeric', timeZone: 'UTC' }).format(date)}</Text><View style={[styles.slotDot, (calendar.data?.slots.some((slot) => slot.date === value)) && styles.slotDotActive]} /></Pressable>
-    })}</ScrollView>
-
-    {calendar.isLoading ? <ActivityIndicator style={styles.loader} color={colors.teal} /> : calendar.isError ? <SectionCard title={t('authUnavailable')}><Button label={t('retry')} variant="secondary" onPress={() => void calendar.refetch()} /></SectionCard> : view === 'day' ? (
-      <SectionCard eyebrow={new Intl.DateTimeFormat(localeCode, { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'UTC' }).format(new Date(`${selectedDate}T00:00:00Z`)).toUpperCase()} title={t('availableSlots')}>
-        {selectedSlots.length ? <View style={styles.slotGrid}>{selectedSlots.map((slot) => <View key={`${slot.date}-${slot.startTime}`} style={styles.slotCard}><View style={styles.timeIcon}><Clock3 size={17} color={colors.teal} /></View><View style={styles.slotCopy}><Text style={styles.slotTime}>{slot.startTime}</Text><Text style={styles.slotEnd}>{slot.endTime}</Text></View><CheckCircle2 size={18} color={colors.success} /></View>)}</View> : <View style={styles.empty}><CalendarClock size={28} color={colors.teal} /><Text style={styles.emptyTitle}>{t('noSlots')}</Text><Text style={styles.emptyBody}>{t('scheduleReadyBody')}</Text></View>}
-      </SectionCard>
-    ) : (
-      <SectionCard eyebrow={t('week').toUpperCase()} title={t('availableSlots')}>
-        <View style={styles.weekList}>{dates.map((date) => { const value = dateOnly(date); const count = calendar.data?.slots.filter((slot) => slot.date === value).length ?? 0; return <Pressable key={value} accessibilityRole="button" style={styles.weekRow} onPress={() => { setSelectedDate(value); setView('day') }}><View style={styles.weekDate}><Text style={styles.weekDay}>{new Intl.DateTimeFormat(localeCode, { weekday: 'long', timeZone: 'UTC' }).format(date)}</Text><Text style={styles.weekMeta}>{new Intl.DateTimeFormat(localeCode, { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(date)}</Text></View><Text style={[styles.weekCount, count === 0 && styles.weekCountEmpty]}>{count} {t('availableSlots').toLowerCase()}</Text></Pressable> })}</View>
-      </SectionCard>
-    )}
-    <View style={styles.note}><CheckCircle2 size={17} color={colors.teal} /><Text style={styles.noteText}>{t('scheduleReadyBody')}</Text></View>
+    <View style={styles.heading}><View style={styles.flex}><Text style={styles.kicker}>{clinic?.name ?? t('professionalWorkspace')}</Text><Text style={styles.title}>{t('calendar')}</Text><Text style={styles.body}>{m.subtitle}</Text></View><Pressable accessibilityRole="button" accessibilityLabel={m.workingHours} style={styles.iconButton} onPress={() => router.push('/professional/manage-schedule')}><SlidersHorizontal size={20} color={colors.ink} /></Pressable></View>
+    {isMarketplacePreview ? <Text style={styles.preview}>{m.demo}</Text> : null}
+    {directory.isLoading ? <ActivityIndicator color={colors.teal} /> : directory.isError ? <View style={styles.card}><Text style={styles.sectionTitle}>{m.calendarError}</Text><Text accessibilityRole="alert" style={styles.body}>{m.calendarErrorBody}</Text><Button label={t('retry')} onPress={() => void directory.refetch()} /></View> : !clinic ? <View style={[styles.card, styles.empty]}><CalendarDays size={32} color={colors.teal} /><Text style={styles.sectionTitle}>{m.noClinic}</Text><Text style={styles.body}>{m.noClinicBody}</Text><Button label={t('professionalWorkspace')} variant="secondary" onPress={() => router.push('/professional')} /></View> : <>
+      <View style={[styles.filters, width >= 960 && styles.filterRow]}>
+        {directory.data!.clinics.length > 1 ? <View style={styles.filterGroup}><Text style={styles.kicker}>{m.clinic}</Text><ScrollView horizontal contentContainerStyle={styles.choices}>{directory.data!.clinics.map((item) => <Pressable key={item.id} accessibilityRole="radio" accessibilityState={{ checked: clinic.id === item.id }} style={[styles.choice, clinic.id === item.id && styles.choiceActive]} onPress={() => { setClinicChoice(item.id); setDentistChoice(undefined); setServiceChoice(undefined) }}><Text style={styles.strong}>{item.name}</Text></Pressable>)}</ScrollView></View> : null}
+        <View style={styles.filterGroup}><Text style={styles.kicker}>{m.dentist}</Text>{dentist ? <ScrollView horizontal contentContainerStyle={styles.choices}>{directory.data!.dentists.map((item) => <Pressable key={item.id} accessibilityRole="radio" accessibilityState={{ checked: dentist.id === item.id }} style={[styles.choice, dentist.id === item.id && styles.choiceActive]} onPress={() => { setDentistChoice(item.id); setServiceChoice(undefined) }}><Text style={styles.strong}>{item.name}</Text></Pressable>)}</ScrollView> : <Text style={styles.body}>{m.noDentistBody}</Text>}</View>
+        <View style={styles.filterGroup}><Text style={styles.kicker}>{m.service}</Text>{service ? <ScrollView horizontal contentContainerStyle={styles.choices}>{services.map((item) => <Pressable key={item.id} accessibilityRole="radio" accessibilityState={{ checked: service.id === item.id }} style={[styles.choice, service.id === item.id && styles.choiceActive]} onPress={() => setServiceChoice(item.id)}><Text style={styles.strong}>{item.name} · {number(item.durationMinutes)} {m.minutes}</Text></Pressable>)}</ScrollView> : <Text style={styles.body}>{m.noService}</Text>}</View>
+      </View>
+      <View style={styles.card}>
+        <View style={styles.toolbar}><View style={styles.flex}><Text style={styles.sectionTitle}>{formatCalendarDate(selectedDate, locale, { month: 'long', year: 'numeric' })}</Text><Text style={styles.small}>{m.timezone}</Text></View><Pressable accessibilityRole="button" accessibilityLabel={m.previousWeek} style={styles.iconButton} onPress={() => setSelectedDate(addCalendarDays(selectedDate, -7))}><ChevronLeft size={20} color={colors.ink} /></Pressable><Pressable accessibilityRole="button" accessibilityLabel={m.nextWeek} style={styles.iconButton} onPress={() => setSelectedDate(addCalendarDays(selectedDate, 7))}><ChevronRight size={20} color={colors.ink} /></Pressable></View>
+        <View style={styles.toolbar}><Button label={t('today')} variant="secondary" onPress={() => setSelectedDate(clinicDate())} /><View style={styles.flex} /><View style={styles.segment}>{(['day', 'week'] as const).map((option) => <Pressable key={option} accessibilityRole="tab" accessibilityState={{ selected: view === option }} style={[styles.segmentButton, view === option && styles.segmentActive]} onPress={() => setView(option)}><Text style={styles.strong}>{t(option)}</Text></Pressable>)}</View></View>
+        <ScrollView horizontal contentContainerStyle={styles.dateStrip} showsHorizontalScrollIndicator={false}>{dates.map((date) => {
+          const count = visits.filter((item) => clinicDate(item.startAt) === date && !['cancelled', 'no_show'].includes(item.status)).length
+          return <Pressable key={date} accessibilityRole="button" accessibilityLabel={dateLabel(date)} accessibilityState={{ selected: date === selectedDate }} style={[styles.dateButton, date === clinicDate() && styles.today, date === selectedDate && styles.dateActive]} onPress={() => setSelectedDate(date)}><Text style={[styles.small, date === selectedDate && styles.onDark]}>{formatCalendarDate(date, locale, { weekday: 'short' })}</Text><Text style={[styles.dateNumber, date === selectedDate && styles.onDark]}>{formatCalendarDate(date, locale, { day: 'numeric' })}</Text><View style={[styles.dateDot, count > 0 && styles.busyDot]} /></Pressable>
+        })}</ScrollView>
+        <View style={styles.toolbar}><View style={styles.legendDot} /><Text style={styles.small}>{m.appointments}</Text><View style={styles.flex} /><Pressable accessibilityRole="button" accessibilityLabel={m.refresh} disabled={isUpdating} style={styles.iconButton} onPress={refresh}>{isUpdating ? <ActivityIndicator color={colors.teal} /> : <RefreshCw size={17} color={colors.teal} />}</Pressable></View>
+      </View>
+      {view === 'week' ? <View style={styles.card}><Text style={styles.sectionTitle}>{t('week')} · {m.appointments}</Text>{appointments.isError ? <Text accessibilityRole="alert" style={styles.error}>{m.appointmentsError}</Text> : appointments.isLoading ? <ActivityIndicator color={colors.teal} /> : dates.map((date) => {
+        const dayVisits = visits.filter((item) => clinicDate(item.startAt) === date)
+        const free = (availability.data ?? []).filter((item) => item.date === date).length
+        return <Pressable key={date} accessibilityRole="button" accessibilityLabel={`${m.viewDay}: ${dateLabel(date)}`} style={[styles.weekRow, date === selectedDate && styles.weekSelected]} onPress={() => { setSelectedDate(date); setView('day') }}><View style={styles.weekDate}><Text style={styles.strong}>{formatCalendarDate(date, locale, { weekday: 'short' })}</Text><Text style={styles.dateNumber}>{formatCalendarDate(date, locale, { day: 'numeric' })}</Text></View><View style={styles.flex}><Text style={styles.strong}>{number(dayVisits.length)} {dayVisits.length === 1 ? m.appointment : m.appointmentPlural}</Text>{dayVisits.slice(0, 2).map((visit) => <Text key={visit.id} numberOfLines={1} style={styles.small}>{formatClinicTime(visit.startAt, locale)} · {visit.patientName}</Text>)}{dayVisits.length > 2 ? <Text style={styles.small}>+{number(dayVisits.length - 2)} {m.moreVisits}</Text> : null}{service && !availability.isError && !availability.isFetching && date >= clinicDate() ? <Text style={styles.freeText}>{number(free)} {free === 1 ? m.freeSlot : m.freeSlots}</Text> : null}</View><ChevronRight size={18} color={colors.muted} /></Pressable>
+      })}{availability.isError ? <Text accessibilityRole="alert" style={styles.error}>{m.availabilityError}</Text> : null}</View> : <View style={[styles.dayLayout, width >= 960 && styles.row]}>
+        <View style={[styles.card, styles.agenda]}><Text style={styles.kicker}>{dateLabel(selectedDate)}</Text><View style={styles.toolbar}><Text style={[styles.sectionTitle, styles.flex]}>{m.agenda}</Text><Text style={styles.count}>{number(selectedVisits.length)}</Text></View>
+          {appointments.isError ? <><Text accessibilityRole="alert" style={styles.error}>{m.appointmentsError}</Text><Button label={t('retry')} variant="secondary" onPress={() => void appointments.refetch()} /></> : appointments.isLoading ? <ActivityIndicator color={colors.teal} /> : selectedVisits.length ? selectedVisits.map((visit) => <View key={visit.id} style={styles.visit}><View style={styles.visitTime}><Text style={styles.strong}>{formatClinicTime(visit.startAt, locale)}</Text><Text style={styles.small}>{formatClinicTime(visit.endAt, locale)}</Text></View><View style={styles.visitRule} /><View style={styles.flex}><Text style={styles.patientName}>{visit.patientName}</Text><Text style={styles.body}>{visit.serviceName}</Text><Text style={[styles.badge, ['cancelled', 'no_show'].includes(visit.status) && styles.mutedBadge]}>{statusLabel(visit.status)}</Text></View></View>) : <View style={styles.empty}><CalendarDays size={30} color={colors.teal} /><Text style={styles.strong}>{selectedDate < clinicDate() ? m.noAppointmentsPast : m.noAppointments}</Text><Text style={styles.body}>{selectedDate < clinicDate() ? m.noAppointmentsPastBody : m.noAppointmentsBody}</Text></View>}
+          <Button label={m.viewVisits} variant="secondary" onPress={() => router.push('/professional/operations')} />
+        </View>
+        <View style={[styles.card, styles.availability, width >= 960 && styles.wideAvailability]}><View style={styles.toolbar}><Clock3 size={20} color={colors.teal} /><Text style={styles.sectionTitle}>{m.available}</Text></View><Text style={styles.small}>{service ? `${service.name} · ${number(service.durationMinutes)} ${m.minutes}` : m.noService}</Text>
+          {!dentist ? <Text style={styles.body}>{m.noDentistBody}</Text> : !service ? null : selectedDate < clinicDate() ? <Text style={styles.body}>{m.pastAvailability}</Text> : selectedDate > addCalendarDays(new Date().toISOString().slice(0, 10), 180) ? <Text style={styles.body}>{m.distantAvailability}</Text> : availability.isError ? <><Text accessibilityRole="alert" style={styles.error}>{m.availabilityError}</Text><Button label={t('retry')} variant="secondary" onPress={() => void availability.refetch()} /></> : availability.isLoading ? <ActivityIndicator color={colors.teal} /> : selectedSlots.length ? <View style={styles.slotGrid}>{selectedSlots.map((slot) => <View key={slot.startAt} style={styles.slot}><Text style={styles.freeText}>{formatClinicTime(slot.startAt, locale)}</Text></View>)}</View> : <><Text style={styles.strong}>{m.noAvailability}</Text><Text style={styles.body}>{m.noAvailabilityBody}</Text></>}
+          <Button label={m.workingHours} variant="ghost" onPress={() => router.push('/professional/manage-schedule')} />
+        </View>
+      </View>}
+    </>}
   </Screen>
 }
 
 const styles = StyleSheet.create({
-  screen: { paddingTop: spacing.xl },
-  headingRow: { flexDirection: 'row', gap: spacing.lg, alignItems: 'flex-start' },
-  headingCopy: { flex: 1, gap: 6 },
-  kicker: { color: colors.teal, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' },
-  title: { color: colors.inkDeep, fontSize: 36, fontWeight: '800', letterSpacing: -1.3 },
-  subtitle: { color: colors.muted, fontSize: 13, lineHeight: 19 },
-  settings: { width: hitTarget, height: hitTarget, alignItems: 'center', justifyContent: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.paper },
-  segment: { flexDirection: 'row', alignSelf: 'center', marginTop: spacing.xl, padding: 4, borderRadius: radius.pill, backgroundColor: '#E8EFED' },
-  segmentButton: { minWidth: 92, minHeight: hitTarget, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill },
-  segmentActive: { backgroundColor: colors.paper, ...shadow },
-  segmentText: { color: colors.muted, fontWeight: '700' },
-  segmentTextActive: { color: colors.ink },
-  dateStrip: { gap: 7, marginVertical: spacing.xl, paddingRight: spacing.sm },
-  dateButton: { minHeight: 76, width: 52, alignItems: 'center', justifyContent: 'center', gap: 3, borderRadius: radius.md, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line },
-  dateActive: { backgroundColor: colors.inkDeep, borderColor: colors.inkDeep },
-  dayName: { color: colors.muted, fontSize: 10, fontWeight: '700' },
-  dayNumber: { color: colors.ink, fontSize: 17, fontWeight: '800' },
-  dateTextActive: { color: colors.paper },
-  slotDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'transparent' },
-  slotDotActive: { backgroundColor: colors.mint },
-  loader: { marginTop: 56 },
-  slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
-  slotCard: { width: '48%', minWidth: 150, flexGrow: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, borderWidth: 1, borderColor: colors.line, borderRadius: radius.md, backgroundColor: colors.pearl },
-  timeIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.mintSoft },
-  slotCopy: { flex: 1 },
-  slotTime: { color: colors.inkDeep, fontSize: 15, fontWeight: '800' },
-  slotEnd: { color: colors.muted, fontSize: 10 },
-  empty: { minHeight: 180, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
-  emptyTitle: { color: colors.ink, fontWeight: '800' },
-  emptyBody: { maxWidth: 350, color: colors.muted, fontSize: 12, lineHeight: 18, textAlign: 'center' },
-  weekList: { gap: 0 },
-  weekRow: { minHeight: 62, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line },
-  weekDate: { gap: 3 },
-  weekDay: { color: colors.ink, fontSize: 13, fontWeight: '800' },
-  weekMeta: { color: colors.muted, fontSize: 11 },
-  weekCount: { color: colors.success, fontSize: 11, fontWeight: '800' },
-  weekCountEmpty: { color: colors.muted },
-  note: { flexDirection: 'row', gap: 9, marginTop: spacing.xl, alignItems: 'flex-start', paddingHorizontal: spacing.sm },
-  noteText: { flex: 1, color: colors.muted, fontSize: 11, lineHeight: 17 },
+  filterRow: { flexDirection: 'row', flexWrap: 'wrap', columnGap: 28 },
+  screen: { gap: 20, paddingTop: 28, paddingHorizontal: 16, paddingBottom: 40 }, heading: { flexDirection: 'row', gap: 16, alignItems: 'center' }, flex: { flex: 1, minWidth: 0, gap: 4 }, kicker: { color: colors.teal, fontWeight: '700', fontSize: 12 }, title: { color: colors.inkDeep, fontSize: 36, fontWeight: '800', letterSpacing: -1, marginVertical: 5 }, body: { color: colors.muted, fontSize: 14, lineHeight: 21 }, small: { color: colors.muted, fontSize: 12, lineHeight: 18 }, strong: { color: colors.ink, fontSize: 14, fontWeight: '700' }, sectionTitle: { color: colors.inkDeep, fontSize: 20, fontWeight: '800' }, preview: { color: colors.teal, fontSize: 12 }, iconButton: { minWidth: 44, minHeight: 44, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.paper, alignItems: 'center', justifyContent: 'center' }, card: { padding: 18, backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.line, borderRadius: radius.lg, gap: 16, minWidth: 0 }, filters: { gap: 16 }, filterGroup: { gap: 7 }, choices: { gap: 8 }, choice: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: colors.line, borderRadius: 12, backgroundColor: colors.paper }, choiceActive: { backgroundColor: colors.mintSoft, borderColor: colors.teal }, toolbar: { flexDirection: 'row', alignItems: 'center', gap: 8 }, segment: { flexDirection: 'row', borderRadius: 12, backgroundColor: colors.pearl, padding: 3 }, segmentButton: { minHeight: 44, minWidth: 64, alignItems: 'center', justifyContent: 'center', borderRadius: 9 }, segmentActive: { backgroundColor: colors.paper }, dateStrip: { gap: 8, flexGrow: 1 }, dateButton: { minHeight: 84, minWidth: 48, flex: 1, alignItems: 'center', justifyContent: 'center', gap: 5, borderRadius: 14, borderWidth: 1, borderColor: colors.line }, today: { borderColor: colors.teal }, dateActive: { backgroundColor: colors.ink, borderColor: colors.ink }, dateNumber: { fontSize: 22, fontWeight: '800', color: colors.ink }, onDark: { color: colors.paper }, dateDot: { width: 5, height: 5, borderRadius: 3 }, busyDot: { backgroundColor: colors.mint }, legendDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: colors.teal }, dayLayout: { gap: 20 }, row: { flexDirection: 'row', alignItems: 'flex-start' }, agenda: { flex: 1 }, availability: { gap: 16 }, wideAvailability: { width: 340 }, count: { color: colors.teal, backgroundColor: colors.mintSoft, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 10, fontWeight: '800' }, visit: { flexDirection: 'row', gap: 14, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.line }, visitTime: { width: 47, gap: 5 }, visitRule: { width: 3, borderRadius: 2, backgroundColor: colors.mint }, patientName: { color: colors.inkDeep, fontWeight: '800', fontSize: 17 }, badge: { color: colors.teal, backgroundColor: colors.mintSoft, paddingVertical: 4, paddingHorizontal: 9, borderRadius: 6, alignSelf: 'flex-start', fontSize: 11, marginTop: 6 }, mutedBadge: { color: colors.muted, backgroundColor: colors.pearl }, empty: { minHeight: 170, justifyContent: 'center', gap: 12 }, slotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, slot: { minWidth: 72, minHeight: 40, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 12, borderWidth: 1, borderColor: colors.line, borderRadius: 10 }, freeText: { color: colors.teal, fontSize: 12, fontWeight: '700', lineHeight: 20 }, weekRow: { flexDirection: 'row', gap: 16, alignItems: 'center', paddingVertical: 16, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: colors.line, borderRadius: 12 }, weekSelected: { backgroundColor: colors.pearl }, weekDate: { width: 44, gap: 5, alignItems: 'center' }, error: { color: colors.danger, fontSize: 13, lineHeight: 20 },
 })

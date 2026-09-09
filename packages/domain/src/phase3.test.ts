@@ -1,8 +1,28 @@
 import { describe, expect, it } from 'vitest'
 import { canMarkNoShow, cancellationDisposition, holdExpiresAt, rankMarketplace, waitlistOfferExpiresAt } from './booking'
-import { bookingHoldSchema, guestWalkInSchema, marketplaceFilterSchema, patientProfileSchema, reviewSchema, waitlistRequestSchema, type MarketplaceDentist } from './phase3'
+import { bookingHoldSchema, distanceBetweenKm, guestWalkInSchema, marketplaceFilterSchema, patientProfileSchema, readMapCoordinates, reviewSchema, waitlistRequestSchema, type MarketplaceDentist } from './phase3'
 
 const now = new Date('2026-09-03T10:00:00.000Z')
+
+describe('Marketplace coordinates', () => {
+  it('preserves valid zero coordinates and accepts PostgREST numeric strings', () => {
+    expect(readMapCoordinates(0, 0)).toEqual({ latitude: 0, longitude: 0 })
+    expect(readMapCoordinates('23.7808', '90.4077')).toEqual({ latitude: 23.7808, longitude: 90.4077 })
+  })
+
+  it('never plots missing, malformed, infinite, or out-of-range values', () => {
+    for (const [latitude, longitude] of [[null, null], [undefined, 90], ['', ''], [true, 90], ['garbage', 90], [91, 90], [23, 181], [NaN, 90], [23, Infinity]]) {
+      expect(readMapCoordinates(latitude, longitude)).toBeNull()
+    }
+  })
+
+  it('computes distance from the actual origin, including the date line', () => {
+    expect(distanceBetweenKm({ latitude: 0, longitude: 0 }, { latitude: 0, longitude: 0 })).toBe(0)
+    expect(distanceBetweenKm({ latitude: 0, longitude: 0 }, { latitude: 1, longitude: 0 })).toBeCloseTo(111.195, 2)
+    expect(distanceBetweenKm({ latitude: 0, longitude: 179 }, { latitude: 0, longitude: -179 })).toBeCloseTo(222.390, 2)
+    expect(distanceBetweenKm({ latitude: 35.6762, longitude: 139.6503 }, { latitude: 23.7808, longitude: 90.4077 })).toBeGreaterThan(4000)
+  })
+})
 
 describe('Phase 3 booking rules', () => {
   it('allows refund or transfer only at least 24 hours before the appointment', () => {
