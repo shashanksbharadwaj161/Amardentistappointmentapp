@@ -2,6 +2,14 @@
 
 Updated: 2026-09-10
 
+## Current priority override — dentist/patient and Admin operations
+
+**Read `docs/ADMIN_OPERATIONS_DELIVERY_2026-09-10.md` first.** The user now prioritizes individual dentists, patients, Super Admin controls, and operational Admin workflows. Clinic business management, inventory, labs, and business finance are deferred to the end; preserve existing internal clinic relationships until a separate migration/removal decision. The older complete-platform plan below remains historical context, not permission to prioritize clinic expansion now.
+
+The current increment adds Admin account setup, operational overview/oversight, separated AI settings, and safe verification evidence handling. Migration 017 is deployed; a separate hosted 20-assertion security smoke passed, but the complete new 32-assertion pgTAP file and full database suite remain unrun. Workspace checks passed (67 Admin, 56 mobile, 34 shared-domain, 63 Edge tests); these do not establish real role/provider/device acceptance.
+
+Owner accounts still required email verification at the last inspection, and actual role rows were patient-only. The user was asked to verify emails; recheck rather than assuming completion. Claude branch `44ac6e7` was not integrated at this checkpoint, with a conflict-resolution follow-up running. See the new delivery document before merging or claiming client readiness. No defensible current whole-app completion percentage is established.
+
 **Latest increments: `docs/ADMIN_ACCESS_DELIVERY_2026-09-10.md` and `docs/SUPPORT_DELIVERY_2026-09-10.md`. Read these first, then `docs/CHECKPOINT_2026-09-10.md` for the preceding navigation/deployment checkpoint.**
 
 **Then read `docs/CHECKPOINT_2026-09-09.md` for the map/calendar increment and `docs/CHECKPOINT_2026-09-07.md` for the broader product-gap audit. The percentage table below is a historical planning estimate only; it is not current verification or acceptance evidence.**
