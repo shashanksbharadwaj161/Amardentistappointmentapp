@@ -1,10 +1,10 @@
 # Amar Dentist continuation guide
 
-Updated: 2026-09-09
+Updated: 2026-09-10
 
-**Latest map/calendar and navigation handoff: `docs/CHECKPOINT_2026-09-09.md`. Read it before resuming.**
+**Latest evidence and handoff: `docs/CHECKPOINT_2026-09-10.md`. Read it before resuming.**
 
-**Read `docs/CHECKPOINT_2026-09-07.md` first. It supersedes the old completion percentage and broad implementation claims below, records the latest live migration/tests, and identifies missing UI workflows that are not blocked on credentials.**
+**Then read `docs/CHECKPOINT_2026-09-09.md` for the map/calendar increment and `docs/CHECKPOINT_2026-09-07.md` for the broader product-gap audit. The percentage table below is a historical planning estimate only; it is not current verification or acceptance evidence.**
 
 This is the authoritative no-context handoff. A new task must read this file, `PRODUCT.md`, `DESIGN.md`, `docs/PROGRESS.md`, and `docs/PRODUCTION_READINESS.md` before changing code.
 
@@ -99,11 +99,13 @@ Before marking a major surface done, inspect compact and wide layouts, English/B
 
 Use pnpm 9.12.0. Do not add another package manager or lockfile.
 
-## 5. Current verified state
+## 5. Current evidence and historical estimate warning
 
-Gate-weighted whole-app completion: **87.84%**.
+The latest dated verification evidence is in `docs/CHECKPOINT_2026-09-10.md`. As of that checkpoint, the responsive navigation and realtime subscription repairs are committed and pushed on `main`, the mobile suite passes 47 tests, and a preview-disabled Expo export passes for web, iOS, and Android. Authenticated live-function behavior and signed physical-device builds remain unverified. Do not infer production readiness from a local export or successful preflight request.
 
-| Phase | Weight | Completion | Earned |
+The following **87.84% figure and table were recorded as a planning estimate on 2026-09-06**. They have not been revalidated as current progress, do not measure user-journey acceptance, and must not be quoted as the product's current verified completion:
+
+| Phase | Historical weight | Historical estimated completion | Historical earned estimate |
 | --- | ---: | ---: | ---: |
 | Foundation/auth/UI | 15% | 99% | 14.85% |
 | Clinics/verification/scheduling | 16% | 90% | 14.40% |
@@ -132,7 +134,7 @@ The live run found and repaired:
 
 Corrective migrations `202609040011`–`202609050014` preserve hosted migration history. Do not squash or remove them.
 
-Local proof on 2026-09-06:
+Historical local proof recorded on 2026-09-06:
 
 - Lint and strict TypeScript passed.
 - 31 shared, 12 mobile, and 3 Admin tests passed.
@@ -209,7 +211,7 @@ Fictional preview records may be edited or replaced through the app during testi
 - `ai-key-rotate`
 - `notification-worker`
 
-All 10 are deployed. Their local handlers are tested and anonymous hosted smoke calls fail closed with HTTP 401, but real authenticated/provider success paths remain unverified until keys, gateway settings, and test accounts are configured.
+All 10 function names have hosted deployments, but this does not prove that every hosted function matches the latest repository source. On 2026-09-10 the committed `clinic-invite` and `payment-checkout` wrappers were deployed and both live preflights changed from HTTP 503 to HTTP 204. Local handlers are tested, and unavailable or unauthenticated mutation paths fail closed, but real authenticated/provider success paths remain unverified until configuration, keys, gateway behavior, and test accounts are exercised.
 
 ## 10. Verification commands
 
