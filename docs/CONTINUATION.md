@@ -2,7 +2,7 @@
 
 Updated: 2026-09-10
 
-**Latest evidence and handoff: `docs/CHECKPOINT_2026-09-10.md`. Read it before resuming.**
+**Latest increments: `docs/ADMIN_ACCESS_DELIVERY_2026-09-10.md` and `docs/SUPPORT_DELIVERY_2026-09-10.md`. Read these first, then `docs/CHECKPOINT_2026-09-10.md` for the preceding navigation/deployment checkpoint.**
 
 **Then read `docs/CHECKPOINT_2026-09-09.md` for the map/calendar increment and `docs/CHECKPOINT_2026-09-07.md` for the broader product-gap audit. The percentage table below is a historical planning estimate only; it is not current verification or acceptance evidence.**
 

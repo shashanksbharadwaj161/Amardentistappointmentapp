@@ -129,6 +129,7 @@ function Console({ identity, onSignOut }: { identity: AdminIdentity; onSignOut: 
           <div className="search" role="search"><Search /><input aria-label="Search current workspace" value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder={activeView === 'verification' ? 'Search applications' : activeView === 'users' ? 'Search users' : activeView === 'cases' ? 'Search cases' : activeView === 'audit' ? 'Search audit events' : 'Search platform'} /></div>
           <div className="top-actions"><div className="profile-summary"><span>{identity.fullName.charAt(0)}</span><div><strong>{identity.fullName}</strong><small>{isSuperAdmin ? 'Super Admin' : 'Admin'}</small></div></div></div>
         </header>
+        {!supabase && <p role="status" className="config-note">Preview console — fictional sample data. Actions here do not change real accounts, send messages, or move money.</p>}
         <main className="content">{activeView === 'verification' ? <VerificationWorkspace query={searchQuery} /> : activeView === 'configuration' ? <><AiConfiguration/><div className="configuration-divider"/><FinanceConfiguration/></> : activeView === 'cases' ? <CaseWorkspace query={searchQuery}/> : activeView === 'users' || activeView === 'audit' ? <PlatformWorkspace view={activeView} query={searchQuery}/> : <>
           <div className="page-heading"><div><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Good morning, {identity.fullName.split(' ')[0]}.</h1><p>Clinic and dentist verification are ready for careful review.</p></div>{isSuperAdmin && <Button ref={inviteButtonRef} className="primary-button compact" type="button" onPress={() => setInviteOpen(true)}><UserPlus />Invite admin</Button>}</div>
           <section className="readiness" aria-labelledby="readiness-heading"><div className="readiness-header"><div><span className="status-dot" /><h2 id="readiness-heading">Operational readiness</h2></div><strong>Clinics &amp; professionals</strong></div><div className="readiness-grid"><article><ShieldCheck /><div><strong>Role isolation</strong><span>Database-enforced</span></div><Chip className="status-chip" color="success" size="sm"><Chip.Label>Active</Chip.Label></Chip></article><article><FileCheck2 /><div><strong>Verification queue</strong><span>Private evidence review</span></div><Chip className="status-chip" color="success" size="sm"><Chip.Label>Active</Chip.Label></Chip></article><article><Activity /><div><strong>Decision history</strong><span>Reviewer and reason retained</span></div><Chip className="status-chip" color="success" size="sm"><Chip.Label>Active</Chip.Label></Chip></article></div></section>
@@ -137,7 +138,7 @@ function Console({ identity, onSignOut }: { identity: AdminIdentity; onSignOut: 
         </main>
       </div>
       {menuOpen && <button className="scrim" aria-label="Close navigation" onClick={closeMenu} />}
-      <InviteAdminDialog open={inviteOpen} onOpenChange={changeInviteOpen} onInvite={invite} />
+      <InviteAdminDialog open={inviteOpen} onOpenChange={changeInviteOpen} onInvite={invite} preview={!supabase} />
     </div>
   )
 }

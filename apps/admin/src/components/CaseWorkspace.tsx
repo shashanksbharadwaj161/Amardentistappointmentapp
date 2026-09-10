@@ -33,14 +33,14 @@ export function CaseWorkspace({query}:{query:string}) {
     try{
       if(supabase){const result=await supabase.rpc('update_support_case',{target_case_id:selected.id,next_status:status,resolution_note:note,assign_to_self:assign,expected_updated_at:selected.updated_at});if(result.error)throw result.error;await load()}
       else setRows(current=>current.map(row=>row.id===selected.id?{...row,status,resolution:note,assigned_to:assign?'demo-admin':row.assigned_to,updated_at:new Date().toISOString()}:row))
-      setSelected(null);setNotice('Case updated. The decision is recorded in the audit trail.')
+      setSelected(null);setNotice(supabase ? 'Case updated. The decision is recorded in the audit trail.' : 'Preview only: sample case updated for this visit. Nothing was saved or audited.')
     }catch{setError('The case could not be saved. It may have changed; refresh and try again.')}finally{setBusy(false)}
   }
   async function moderate(visible:boolean){
     if(!selected||busy)return
     if(note.trim().length<5){setError('Enter a reason before changing review visibility.');return}
     setBusy(true);setError('')
-    try{if(supabase){const {error}=await supabase.rpc('moderate_case_review',{target_case_id:selected.id,make_visible:visible,action_reason:note});if(error)throw error}setNotice(visible?'Review restored. Decision recorded.':'Review hidden from discovery. Decision recorded.')}
+    try{if(supabase){const {error}=await supabase.rpc('moderate_case_review',{target_case_id:selected.id,make_visible:visible,action_reason:note});if(error)throw error}setNotice(!supabase ? 'Preview only: no review visibility or audit records were changed.' : visible?'Review restored. Decision recorded.':'Review hidden from discovery. Decision recorded.')}
     catch{setError('Review visibility could not be changed. Try again.')}finally{setBusy(false)}
   }
   async function refund(){

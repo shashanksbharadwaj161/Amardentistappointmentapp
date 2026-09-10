@@ -4,6 +4,7 @@ import { Chip } from '@heroui/react/chip'
 import { Building2, CheckCircle2, FileBadge2, FileText, LoaderCircle, ShieldCheck, Stethoscope, XCircle } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { loadVerificationDetails, loadVerificationQueue, reviewVerification, type VerificationDetails } from '../lib/phase2'
+import { supabase } from '../lib/supabase'
 
 function QueueIcon({ type }: { type: VerificationQueueItem['targetType'] }) {
   return type === 'clinic' ? <Building2 /> : <Stethoscope />
@@ -65,7 +66,7 @@ export function VerificationWorkspace({ query }: { query: string }) {
       setItems((current) => current.filter((item) => item.id !== selected.id))
       setSelectedId(items.find((item) => item.id !== selected.id)?.id ?? null)
       setReason('')
-      setMessage(decision === 'approved' ? 'Application approved and access updated.' : 'Decision saved with its review reason.')
+      setMessage(!supabase ? 'Preview only: sample decision updated. No real access or audit records changed.' : decision === 'approved' ? 'Application approved and access updated.' : 'Decision saved with its review reason.')
     } catch { setMessage('The decision was not saved. Check your access and try again.') }
     finally { setBusy(null) }
   }

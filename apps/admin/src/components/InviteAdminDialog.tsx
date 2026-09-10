@@ -1,7 +1,7 @@
 import { inviteAdminSchema } from '@amar-dentist/domain'
 import { Button } from '@heroui/react/button'
 import { CheckCircle2 } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import {
   Dialog,
   DialogClose,
@@ -15,31 +15,44 @@ type InviteAdminDialogProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   onInvite: (email: string, displayName: string, expiresInDays: number) => Promise<string | null>
+  preview?: boolean
 }
 
-export function InviteAdminDialog({ open, onOpenChange, onInvite }: InviteAdminDialogProps) {
+export function InviteAdminDialog({ open, onOpenChange, onInvite, preview = false }: InviteAdminDialogProps) {
   const [email, setEmail] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const submitting = useRef(false)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (submitting.current) return
     const parsed = inviteAdminSchema.safeParse({ email, displayName, expiresInDays: 7 })
     if (!parsed.success) {
       setSuccess(false)
       setMessage(parsed.error.issues[0]?.message ?? 'Check the invitation fields.')
       return
     }
+    submitting.current = true
     setBusy(true)
-    const error = await onInvite(parsed.data.email, parsed.data.displayName, parsed.data.expiresInDays)
-    setBusy(false)
-    setSuccess(!error)
-    setMessage(error ?? `Invitation sent to ${parsed.data.email}.`)
+    setMessage(null)
+    try {
+      const error = preview ? null : await onInvite(parsed.data.email, parsed.data.displayName, parsed.data.expiresInDays)
+      setSuccess(!error)
+      setMessage(error ? 'Invitation could not be confirmed. Check its status before trying again.' : preview ? 'Preview only: no email was sent and no administrator access was created.' : `Invitation sent to ${parsed.data.email}.`)
+    } catch {
+      setSuccess(false)
+      setMessage('Invitation could not be confirmed. Check its status before trying again.')
+    } finally {
+      submitting.current = false
+      setBusy(false)
+    }
   }
 
   function handleOpenChange(next: boolean) {
+    if (submitting.current) return
     onOpenChange(next)
     if (!next) {
       setEmail('')
