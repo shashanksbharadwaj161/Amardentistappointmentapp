@@ -18,8 +18,14 @@ import { colors, radius, spacing } from '../../src/theme'
 // server refreshes (including notes the dentist applied from the AI review workspace on a
 // separate screen) can be merged without discarding unsaved manual edits.
 export type EncounterNoteFields = { complaint: string; subjective: string; objective: string; assessment: string; plan: string }
+// When a refetch brings server/AI notes that clash with an unsaved local edit, both values are
+// held here (keyed by field) so the dentist can deliberately keep their edit or take the update.
+export type NoteConflict = { mine: string; incoming: string }
+export type NoteConflicts = Partial<Record<keyof EncounterNoteFields, NoteConflict>>
 const NOTE_KEYS: (keyof EncounterNoteFields)[] = ['complaint', 'subjective', 'objective', 'assessment', 'plan']
 const emptyNotes: EncounterNoteFields = { complaint: '', subjective: '', objective: '', assessment: '', plan: '' }
+// Existing message keys naming each structured-note field, reused for the conflict warning.
+const NOTE_FIELD_LABEL = { complaint: 'chiefComplaint', subjective: 'subjective', objective: 'objective', assessment: 'assessment', plan: 'carePlan' } as const
 
 // Merge freshly loaded server notes with the dentist's current local edits, relative to the
 // baseline the local edits were derived from. A field with no unsaved local edit takes the
@@ -54,6 +60,7 @@ export default function ClinicalEncounterScreen() {
   const notesRef = useRef<EncounterNoteFields>(notes)
   notesRef.current = notes
   const baselineRef = useRef<EncounterNoteFields | null>(null)
+  const [conflicts, setConflicts] = useState<NoteConflicts>({})
   const [diagnosis, setDiagnosis] = useState('')
   const [diagnosisCode, setDiagnosisCode] = useState('')
   const [toothCode, setToothCode] = useState('')
@@ -73,23 +80,45 @@ export default function ClinicalEncounterScreen() {
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
 
+  // Merge newly loaded server notes into the editable fields. Un-edited fields adopt the server
+  // value (so applied AI notes surface); an edited field is preserved, and if the server also
+  // changed it the clash is recorded so neither value is lost until the dentist resolves it.
+  // Returns whether any unresolved conflict now exists.
+  const applyServerNotes = (server: EncounterNoteFields): boolean => {
+    if (!baselineRef.current) { baselineRef.current = server; notesRef.current = server; setNotes(server); setConflicts({}); return false }
+    const { next, conflicts: conflicted } = reconcileEncounterNotes(server, notesRef.current, baselineRef.current)
+    const map: NoteConflicts = {}
+    for (const key of conflicted) map[key] = { mine: notesRef.current[key], incoming: server[key] }
+    baselineRef.current = server
+    notesRef.current = next
+    setNotes(next)
+    setConflicts(map)
+    return conflicted.length > 0
+  }
+
   useEffect(() => {
     const encounter = record.data?.encounter
     if (!encounter) return
-    const server: EncounterNoteFields = { complaint: encounter.chiefComplaint, subjective: encounter.subjectiveNotes, objective: encounter.objectiveNotes, assessment: encounter.assessment, plan: encounter.plan }
-    if (!baselineRef.current) { setNotes(server); baselineRef.current = server; return }
-    const { next } = reconcileEncounterNotes(server, notesRef.current, baselineRef.current)
-    setNotes(next); baselineRef.current = server
+    applyServerNotes({ complaint: encounter.chiefComplaint, subjective: encounter.subjectiveNotes, objective: encounter.objectiveNotes, assessment: encounter.assessment, plan: encounter.plan })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record.data?.encounter])
 
   if (!loading && !profile) return <Redirect href="/" />
   if (!profile) return null
 
   const updateNote = (key: keyof EncounterNoteFields, value: string) => setNotes((current) => ({ ...current, [key]: value }))
+  const keepMine = (key: keyof EncounterNoteFields) => setConflicts((current) => { const next = { ...current }; delete next[key]; return next })
+  const useUpdated = (key: keyof EncounterNoteFields) => {
+    const incoming = conflicts[key]?.incoming
+    if (incoming !== undefined) { const updated = { ...notesRef.current, [key]: incoming }; notesRef.current = updated; setNotes(updated) }
+    setConflicts((current) => { const next = { ...current }; delete next[key]; return next })
+  }
   const refresh = async () => { await queryClient.invalidateQueries({ queryKey: ['clinical-encounter', appointmentId] }) }
   const persistNotes = async (): Promise<boolean> => {
+    if (Object.keys(conflicts).length > 0) { setMessage(t('resolveConflictsFirst')); return false }
     const encounterId = record.data?.encounter.id
-    const parsed = clinicalEncounterSchema.safeParse({ encounterId, chiefComplaint: notes.complaint, subjectiveNotes: notes.subjective, objectiveNotes: notes.objective, assessment: notes.assessment, plan: notes.plan, changeReason: 'Clinical note reviewed' })
+    const current = notesRef.current
+    const parsed = clinicalEncounterSchema.safeParse({ encounterId, chiefComplaint: current.complaint, subjectiveNotes: current.subjective, objectiveNotes: current.objective, assessment: current.assessment, plan: current.plan, changeReason: 'Clinical note reviewed' })
     if (!parsed.success) { setMessage(t('checkClinicalFields')); return false }
     try { await saveEncounter(parsed.data); baselineRef.current = { ...notesRef.current }; return true } catch { setMessage(t('clinicalActionFailed')); return false }
   }
@@ -144,17 +173,45 @@ export default function ClinicalEncounterScreen() {
   const finalize = async () => {
     if (!record.data) return
     setBusy('finalize'); setMessage(null)
-    try { const saved = await persistNotes(); if (!saved) return; await finalizeEncounter(record.data.encounter.id); setMessage(t('encounterFinalized')); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
+    try {
+      if (Object.keys(conflicts).length > 0) { setMessage(t('resolveConflictsFirst')); return }
+      // Refresh before publishing; a failed refetch means we cannot prove the notes are current,
+      // so finalizing is blocked rather than risk publishing a stale record to the patient.
+      const latest = await record.refetch()
+      if (latest.isError || !latest.data) { setMessage(t('refreshFailedStale')); return }
+      const e = latest.data.encounter
+      const hasConflict = applyServerNotes({ complaint: e.chiefComplaint, subjective: e.subjectiveNotes, objective: e.objectiveNotes, assessment: e.assessment, plan: e.plan })
+      if (hasConflict) { setMessage(t('resolveConflictsFirst')); return }
+      const saved = await persistNotes(); if (!saved) return
+      await finalizeEncounter(record.data.encounter.id); setMessage(t('encounterFinalized')); await refresh()
+    } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
   }
 
   if (record.isLoading) return <Screen><ActivityIndicator color={colors.teal} /></Screen>
-  if (record.isError || !record.data) return <Screen><SectionCard title={t('clinicalActionFailed')}><Button label={t('retry')} onPress={() => void record.refetch()} /></SectionCard></Screen>
+  // Only fall back to the error card when there is no record to show at all (initial load failure).
+  // A failed background/pre-finalize refetch keeps the editing screen so unsaved notes are never
+  // discarded; that case is surfaced inline (see refreshFailedStale) instead.
+  if (!record.data) return <Screen><SectionCard title={t('clinicalActionFailed')}><Button label={t('retry')} onPress={() => void record.refetch()} /></SectionCard></Screen>
   const editable = record.data.encounter.status === 'draft'
+  const conflictKeys = Object.keys(conflicts) as (keyof EncounterNoteFields)[]
 
   return <Screen maxWidth={1040} style={styles.screen}>
     <Stack.Screen options={{ title: t('clinicalEncounter'), headerBackTitle: t('back') }} />
     <View style={styles.heading}><Stethoscope size={29} color={colors.teal} /><View style={styles.headingCopy}><Text style={styles.kicker}>{t('clinicalLedger')}</Text><Text style={styles.title}>{patientName || t('clinicalEncounter')}</Text><Text style={styles.subtitle}>{editable ? t('draftPrivateToDentist') : t('finalizedVisibleToPatient')}</Text></View></View>
     {message ? <Text accessibilityRole="alert" style={styles.notice}>{message}</Text> : null}
+    {conflictKeys.length > 0 ? <View accessibilityRole="alert" style={styles.conflict}>
+      <Text style={styles.conflictTitle}>{t('noteConflictTitle')}</Text>
+      <Text style={styles.conflictBody}>{t('noteConflictBody')}</Text>
+      {conflictKeys.map((key) => <View key={key} style={styles.conflictRow}>
+        <Text style={styles.conflictField}>{t(NOTE_FIELD_LABEL[key])}</Text>
+        <Text style={styles.conflictLabel}>{t('noteConflictMine')}</Text><Text style={styles.conflictValue}>{conflicts[key]!.mine || '—'}</Text>
+        <Text style={styles.conflictLabel}>{t('noteConflictUpdated')}</Text><Text style={styles.conflictValue}>{conflicts[key]!.incoming || '—'}</Text>
+        <View style={styles.conflictActions}>
+          <Button label={t('keepMyEdit')} variant="secondary" onPress={() => keepMine(key)} />
+          <Button label={t('useUpdatedNote')} variant="ghost" onPress={() => useUpdated(key)} />
+        </View>
+      </View>)}
+    </View> : null}
     {record.data?.encounter.status === 'draft' ? <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/professional/ai-review', params: { appointmentId: record.data!.encounter.appointmentId } })} style={styles.aiCard}><BrainCircuit size={24} color={colors.mint} /><View style={styles.flex}><Text style={styles.aiTitle}>{t('aiReviewWorkspace')}</Text><Text style={styles.aiBody}>{t('aiDentistSafety')}</Text></View></Pressable> : null}
     <View style={[styles.columns, width >= 800 && styles.columnsWide]}>
       <View style={styles.column}><SectionCard eyebrow={t('progressNotes').toUpperCase()} title={t('structuredClinicalNote')}>
@@ -209,5 +266,5 @@ export default function ClinicalEncounterScreen() {
 
 const styles = StyleSheet.create({
   arch:{gap:spacing.sm,marginVertical:spacing.sm},tooth:{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center',borderWidth:1,borderColor:colors.line,borderRadius:radius.md,backgroundColor:colors.paper},toothSelected:{backgroundColor:colors.ink},toothText:{color:colors.ink,fontSize:15,fontWeight:'700'},toothTextSelected:{color:colors.paper},
-  screen: { paddingTop: spacing.xl, gap: spacing.xl }, heading: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }, headingCopy: { flex: 1, gap: 5 }, kicker: { color: colors.teal, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' }, title: { color: colors.inkDeep, fontSize: 31, fontWeight: '800', letterSpacing: -0.9 }, subtitle: { color: colors.muted, fontSize: 13, lineHeight: 20 }, notice: { color: colors.teal, backgroundColor: colors.mintSoft, padding: spacing.md, borderRadius: radius.md }, aiCard:{flexDirection:'row',alignItems:'flex-start',gap:spacing.md,padding:spacing.lg,borderRadius:radius.lg,backgroundColor:colors.inkDeep},aiTitle:{color:colors.paper,fontSize:16,fontWeight:'800'},aiBody:{color:'#B8C8D3',fontSize:12,lineHeight:18,marginTop:4}, columns: { gap: spacing.xl }, columnsWide: { flexDirection: 'row', alignItems: 'flex-start' }, column: { flex: 1, minWidth: 0, gap: spacing.xl }, rowFields: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }, codeField: { width: 110 }, flex: { flex: 1, minWidth: 160 }, item: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line }, itemText: { flex: 1, color: colors.text, fontSize: 12, lineHeight: 18 }, prescriptionGroup: { gap: spacing.sm, paddingBottom: spacing.md, marginBottom: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line }, draftNote: { color: colors.muted, fontSize: 12, lineHeight: 18 }, medicineGrid: { gap: spacing.sm }, mediaIntro: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, mediaActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, finalBadge: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, finalText: { color: colors.success, fontWeight: '800' }, finalize: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, padding: spacing.xl, borderRadius: radius.lg, backgroundColor: colors.inkDeep }, finalizeTitle: { color: colors.paper, fontSize: 18, fontWeight: '800' }, finalizeBody: { color: '#B8C8D3', fontSize: 12, lineHeight: 18, marginTop: 4 },
+  screen: { paddingTop: spacing.xl, gap: spacing.xl }, heading: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }, headingCopy: { flex: 1, gap: 5 }, kicker: { color: colors.teal, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' }, title: { color: colors.inkDeep, fontSize: 31, fontWeight: '800', letterSpacing: -0.9 }, subtitle: { color: colors.muted, fontSize: 13, lineHeight: 20 }, notice: { color: colors.teal, backgroundColor: colors.mintSoft, padding: spacing.md, borderRadius: radius.md }, conflict: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.md, backgroundColor: '#FDECEC', borderWidth: 1, borderColor: '#B83A3A' }, conflictTitle: { color: '#B83A3A', fontSize: 15, fontWeight: '800' }, conflictBody: { color: colors.text, fontSize: 12, lineHeight: 18 }, conflictRow: { gap: 4, paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line }, conflictField: { color: colors.inkDeep, fontSize: 13, fontWeight: '800' }, conflictLabel: { color: colors.muted, fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 }, conflictValue: { color: colors.text, fontSize: 12, lineHeight: 18 }, conflictActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingTop: spacing.xs }, aiCard:{flexDirection:'row',alignItems:'flex-start',gap:spacing.md,padding:spacing.lg,borderRadius:radius.lg,backgroundColor:colors.inkDeep},aiTitle:{color:colors.paper,fontSize:16,fontWeight:'800'},aiBody:{color:'#B8C8D3',fontSize:12,lineHeight:18,marginTop:4}, columns: { gap: spacing.xl }, columnsWide: { flexDirection: 'row', alignItems: 'flex-start' }, column: { flex: 1, minWidth: 0, gap: spacing.xl }, rowFields: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }, codeField: { width: 110 }, flex: { flex: 1, minWidth: 160 }, item: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line }, itemText: { flex: 1, color: colors.text, fontSize: 12, lineHeight: 18 }, prescriptionGroup: { gap: spacing.sm, paddingBottom: spacing.md, marginBottom: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line }, draftNote: { color: colors.muted, fontSize: 12, lineHeight: 18 }, medicineGrid: { gap: spacing.sm }, mediaIntro: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, mediaActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, finalBadge: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, finalText: { color: colors.success, fontWeight: '800' }, finalize: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, padding: spacing.xl, borderRadius: radius.lg, backgroundColor: colors.inkDeep }, finalizeTitle: { color: colors.paper, fontSize: 18, fontWeight: '800' }, finalizeBody: { color: '#B8C8D3', fontSize: 12, lineHeight: 18, marginTop: 4 },
 })
