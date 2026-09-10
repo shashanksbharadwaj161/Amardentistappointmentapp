@@ -17,6 +17,7 @@
 - Shared domain: 34 tests passed. Workspace-wide type checking passed. A registry installation temporarily disrupted dependency links; a frozen-lockfile install restored them before these passing checks. The committed dependency manifest and lockfile are unchanged.
 - Edge Functions: 63 tests passed. This gives 162 passing tests in this pass across mobile, Admin, domain, and Edge Functions; mocked provider tests are not real-provider certification. Secret scan and static UI audit passed.
 - Admin production build passed after correcting test typing. The existing large-bundle advisory remains.
+- Expo exports for web, iOS, and Android completed successfully. These are exported bundles, not signed store builds or physical-device acceptance. Existing Leaflet CSS asset warnings remain.
 - Visible browser on localhost:4175: entered preview, opened Users, confirmed roles separate from mode, opened removal dialog, entered a fictional reason, removed the sample Admin role, and confirmed the patient role remained with a preview-only result.
 - Mobile server on localhost:8082 remained running; its visible tab was signed out.
 
