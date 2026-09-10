@@ -12,6 +12,7 @@ import type {
 } from '@amar-dentist/domain'
 import type { DocumentPickerAsset } from 'expo-document-picker'
 import { Platform } from 'react-native'
+import { isExplicitDemoMode, subscribeToRealtimeChannel } from './realtime'
 import { supabase } from './supabase'
 
 export type ProfessionalOverview = {
@@ -195,12 +196,11 @@ export async function getCalendarContext(userId: string, from: Date, through: Da
 
 export function subscribeToAppointmentChanges(dentistId: string, onChange: () => void): () => void {
   const client = supabase
-  if (!client || dentistId === previewId) return () => undefined
-  const channel = client.channel(`dentist-schedule:${dentistId}`)
+  if (!client || isExplicitDemoMode() || dentistId === previewId) return () => undefined
+  return subscribeToRealtimeChannel(client, `dentist-schedule:${dentistId}`, (channel) => channel
     .on('postgres_changes', { event: '*', schema: 'public', table: 'appointments', filter: `dentist_id=eq.${dentistId}` }, onChange)
     .on('postgres_changes', { event: '*', schema: 'public', table: 'appointment_holds', filter: `dentist_id=eq.${dentistId}` }, onChange)
-    .subscribe()
-  return () => { void client.removeChannel(channel) }
+  )
 }
 
 export async function saveClinicService(input: ClinicServiceInput): Promise<string> {

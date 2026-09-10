@@ -2,6 +2,7 @@ import { distanceBetweenKm, marketplaceFilterSchema, readMapCoordinates, type Gu
 import * as Location from 'expo-location'
 import { Platform } from 'react-native'
 import { getProfessionalOverview } from './phase2'
+import { isExplicitDemoMode, subscribeToRealtimeChannel } from './realtime'
 import { supabase } from './supabase'
 
 export type PatientProfileSummary = PatientProfileInput & { id: string }
@@ -364,12 +365,11 @@ export async function sendChatMessage(threadId: string, body: string): Promise<s
 
 export function subscribeToChatMessages(threadId: string, onMessage: (message: ChatMessage) => void): () => void {
   const client = supabase
-  if (!client || previewEnabled) return () => undefined
-  const channel = client.channel(`chat:${threadId}`)
+  if (!client || isExplicitDemoMode()) return () => undefined
+  return subscribeToRealtimeChannel(client, `chat:${threadId}`, (channel) => channel
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `thread_id=eq.${threadId}` }, (payload) => {
       const row = payload.new as { id: string; sender_id: string; body: string; created_at: string }
       onMessage({ id: row.id, senderId: row.sender_id, body: row.body, createdAt: row.created_at })
     })
-    .subscribe()
-  return () => { void client.removeChannel(channel) }
+  )
 }
