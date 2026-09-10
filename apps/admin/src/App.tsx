@@ -1,9 +1,8 @@
 import { hasPermission, signInSchema, type AppRole } from '@amar-dentist/domain'
 import { Button } from '@heroui/react/button'
-import { Chip } from '@heroui/react/chip'
 import type { Session } from '@supabase/supabase-js'
 import { Activity, FileCheck2, Gavel, LayoutDashboard, LogOut, Menu, Search, Settings2, ShieldAlert, ShieldCheck, UserPlus, Users, X } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import brandMascot from './assets/brand-mascot.png'
 import { InviteAdminDialog } from './components/InviteAdminDialog'
 import { VerificationWorkspace } from './components/VerificationWorkspace'
@@ -11,19 +10,23 @@ import { FinanceConfiguration } from './components/FinanceConfiguration'
 import { AiConfiguration } from './components/AiConfiguration'
 import { CaseWorkspace } from './components/CaseWorkspace'
 import { PlatformWorkspace } from './components/PlatformWorkspace'
-import { demoAllowed, supabase } from './lib/supabase'
+import { adminPasswordCallbackIntent, demoAllowed, supabase } from './lib/supabase'
+import { CompleteAdminAccess } from './components/CompleteAdminAccess'
+import { OperationalOverview, OversightWorkspace } from './components/OperationalOverview'
 import './App.css'
 
 type AdminIdentity = { fullName: string; email: string; roles: AppRole[] }
 
 async function resolveIdentity(session: Session): Promise<AdminIdentity | null> {
   if (!supabase) return null
-  const [{ data: profile }, { data: roleRows }] = await Promise.all([
+  const verified = await supabase.auth.getUser()
+  if (verified.error || verified.data.user?.id !== session.user.id || !verified.data.user.email_confirmed_at) return null
+  const [{ data: profile, error: profileError }, { data: roleRows, error: roleError }] = await Promise.all([
     supabase.from('profiles').select('full_name,email').eq('id', session.user.id).single(),
     supabase.from('user_roles').select('role').eq('user_id', session.user.id),
   ])
   const roles = (roleRows?.map(({ role }) => role) ?? []) as AppRole[]
-  if (!profile || !hasPermission(roles, 'admin:access')) return null
+  if (profileError || roleError || !profile || !hasPermission(roles, 'admin:access')) return null
   return { fullName: profile.full_name, email: profile.email, roles }
 }
 
@@ -31,30 +34,30 @@ function Brand() {
   return <div className="brand" aria-label="Amar Dentist administration"><img className="brand-mark" src={brandMascot} alt="" /><span>Amar Dentist</span><small>ADMIN</small></div>
 }
 
-function SignIn({ onDemo, onDenied }: { onDemo: () => void; onDenied: () => void }) {
+function SignIn({ onDemo, onDenied }: { onDemo: (role: 'admin' | 'super_admin') => void; onDenied: () => void }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
+  const pending = useRef(false)
 
   async function submit(event: FormEvent) {
     event.preventDefault()
+    if (pending.current) return
     const parsed = signInSchema.safeParse({ email, password })
     if (!parsed.success) return setMessage(parsed.error.issues[0]?.message ?? 'Check your details.')
     if (!supabase) return setMessage('Connect Supabase to sign in.')
-    setBusy(true)
-    const { data, error } = await supabase.auth.signInWithPassword(parsed.data)
-    if (error) setMessage(error.message)
-    else if (!data.user.email_confirmed_at) {
-      await supabase.auth.signOut()
-      setMessage('Verify this email before signing in.')
-    } else if (data.session && !(await resolveIdentity(data.session))) {
-      onDenied()
-    }
-    setBusy(false)
+    pending.current = true; setBusy(true); setMessage(null)
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword(parsed.data)
+      if (error || !data.user || !data.session) throw new Error('SIGN_IN_FAILED')
+      setPassword('')
+      if (!data.user.email_confirmed_at) onDenied()
+    } catch { setMessage('Sign-in could not be confirmed. Check your email, password, and connection, then try again.') }
+    finally { pending.current = false; setBusy(false) }
   }
 
-  return <main className="signin-page"><section className="signin-story"><Brand /><div className="signin-copy"><p className="eyebrow">CONTROL, WITHOUT CLUTTER</p><h1>Steady oversight for every care journey.</h1><p>Verify professionals, investigate activity, and keep the platform safe from one focused workspace.</p></div><div className="trust-note"><ShieldCheck size={20} /><span>Access is verified by database role policies—not hidden navigation.</span></div></section><section className="signin-panel"><form className="signin-form" onSubmit={submit}><div><p className="eyebrow">SECURE CONSOLE</p><h2>Sign in</h2><p>Invitation-only access for platform administrators.</p></div><label>Email<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@example.com" /></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Your password" /></label>{message && <div className="alert" role="alert">{message}</div>}<Button className="primary-button" type="submit" isPending={busy}>{busy ? 'Verifying…' : 'Enter console'}</Button>{demoAllowed && !supabase && <Button className="text-button" type="button" variant="ghost" onPress={onDemo}>Preview admin console</Button>}<p className="security-copy">Need access? Ask a Super Admin for a time-limited invitation.</p></form></section></main>
+  return <main className="signin-page"><section className="signin-story"><Brand /><div className="signin-copy"><p className="eyebrow">CONTROL, WITHOUT CLUTTER</p><h1>Steady oversight for every care journey.</h1><p>Verify professionals, investigate activity, and keep the platform safe from one focused workspace.</p></div><div className="trust-note"><ShieldCheck size={20} /><span>Access is verified by database role policies—not hidden navigation.</span></div></section><section className="signin-panel"><form className="signin-form" onSubmit={submit}><div><p className="eyebrow">SECURE CONSOLE</p><h2>Sign in</h2><p>Invitation-only access for platform administrators.</p></div><label>Email<input type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="admin@example.com" /></label><label>Password<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Your password" /></label>{message && <div className="alert" role="alert">{message}</div>}<Button className="primary-button" type="submit" isPending={busy}>{busy ? 'Verifying…' : 'Enter console'}</Button>{demoAllowed && !supabase && <Button className="text-button" type="button" variant="ghost" onPress={() => onDemo('super_admin')}>Preview admin console</Button>}{demoAllowed && !supabase && <Button className="text-button" type="button" variant="ghost" onPress={() => onDemo('admin')}>Preview operational Admin</Button>}<p className="security-copy">Need access? Ask a Super Admin for a time-limited invitation.</p></form></section></main>
 }
 
 function AccessDenied({ onSignOut }: { onSignOut: () => void }) {
@@ -67,19 +70,26 @@ const nav = [
   { id: 'users', label: 'Users', icon: Users },
   { id: 'cases', label: 'Cases', icon: Gavel },
   { id: 'audit', label: 'Audit trail', icon: Activity },
+  { id: 'invitations', label: 'Admin invitations', icon: UserPlus },
+  { id: 'provider', label: 'AI provider', icon: Settings2 },
+  { id: 'flags', label: 'Feature controls', icon: ShieldCheck },
+  { id: 'limits', label: 'Usage limits', icon: ShieldAlert },
+  { id: 'usage', label: 'AI usage and cost', icon: Activity },
+  { id: 'delivery', label: 'Notification delivery', icon: Activity },
   { id: 'configuration', label: 'Configuration', icon: Settings2 },
 ]
 
 function Console({ identity, onSignOut }: { identity: AdminIdentity; onSignOut: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
-  const [activeView, setActiveView] = useState<'overview' | 'verification' | 'users' | 'cases' | 'audit' | 'configuration'>('overview')
+  const [requestedView, setActiveView] = useState<'overview' | 'verification' | 'users' | 'cases' | 'audit' | 'configuration' | 'invitations' | 'provider' | 'flags' | 'limits' | 'usage' | 'delivery'>('overview')
   const [searchQuery, setSearchQuery] = useState('')
   const [mobileNavigation, setMobileNavigation] = useState(false)
   const sidebarRef = useRef<HTMLElement>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const inviteButtonRef = useRef<HTMLButtonElement>(null)
   const isSuperAdmin = identity.roles.includes('super_admin')
+  const activeView = isSuperAdmin || ['overview', 'verification', 'cases'].includes(requestedView) ? requestedView : 'overview'
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 980px)')
@@ -107,6 +117,7 @@ function Console({ identity, onSignOut }: { identity: AdminIdentity; onSignOut: 
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
   }
   const invite = async (email: string, displayName: string, expiresInDays: number) => {
+    if (!isSuperAdmin) return 'Super Admin access is required.'
     if (!supabase) { await new Promise((resolve) => setTimeout(resolve, 250)); return null }
     const { error } = await supabase.functions.invoke('admin-invite', { body: { email, displayName, expiresInDays } })
     return error?.message ?? null
@@ -130,50 +141,80 @@ function Console({ identity, onSignOut }: { identity: AdminIdentity; onSignOut: 
           <div className="top-actions"><div className="profile-summary"><span>{identity.fullName.charAt(0)}</span><div><strong>{identity.fullName}</strong><small>{isSuperAdmin ? 'Super Admin' : 'Admin'}</small></div></div></div>
         </header>
         {!supabase && <p role="status" className="config-note">Preview console — fictional sample data. Actions here do not change real accounts, send messages, or move money.</p>}
-        <main className="content">{activeView === 'verification' ? <VerificationWorkspace query={searchQuery} /> : activeView === 'configuration' ? <><AiConfiguration/><div className="configuration-divider"/><FinanceConfiguration/></> : activeView === 'cases' ? <CaseWorkspace query={searchQuery}/> : activeView === 'users' || activeView === 'audit' ? <PlatformWorkspace view={activeView} query={searchQuery}/> : <>
-          <div className="page-heading"><div><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Good morning, {identity.fullName.split(' ')[0]}.</h1><p>Clinic and dentist verification are ready for careful review.</p></div>{isSuperAdmin && <Button ref={inviteButtonRef} className="primary-button compact" type="button" onPress={() => setInviteOpen(true)}><UserPlus />Invite admin</Button>}</div>
-          <section className="readiness" aria-labelledby="readiness-heading"><div className="readiness-header"><div><span className="status-dot" /><h2 id="readiness-heading">Operational readiness</h2></div><strong>Clinics &amp; professionals</strong></div><div className="readiness-grid"><article><ShieldCheck /><div><strong>Role isolation</strong><span>Database-enforced</span></div><Chip className="status-chip" color="success" size="sm"><Chip.Label>Active</Chip.Label></Chip></article><article><FileCheck2 /><div><strong>Verification queue</strong><span>Private evidence review</span></div><Chip className="status-chip" color="success" size="sm"><Chip.Label>Active</Chip.Label></Chip></article><article><Activity /><div><strong>Decision history</strong><span>Reviewer and reason retained</span></div><Chip className="status-chip" color="success" size="sm"><Chip.Label>Active</Chip.Label></Chip></article></div></section>
-          <div className="two-column"><section className="panel"><div className="panel-heading"><div><p className="eyebrow">ATTENTION QUEUE</p><h2>Applications ready for review</h2></div><Chip className="phase-label" size="sm"><Chip.Label>Live</Chip.Label></Chip></div><div className="empty-state"><span><FileCheck2 /></span><h3>Verification is active</h3><p>Clinic and dentist applications are private until an administrator records a decision.</p><Button className="secondary-button" onPress={() => setActiveView('verification')}>Open verification queue</Button></div></section><section className="panel"><div className="panel-heading"><div><p className="eyebrow">SECURITY LEDGER</p><h2>Foundation events</h2></div></div><ol className="timeline"><li><span /><div><strong>Administrator session verified</strong><p>{identity.email}</p></div><time>Now</time></li><li><span /><div><strong>Role policy evaluated</strong><p>{isSuperAdmin ? 'Super Admin access granted' : 'Admin access granted'}</p></div><time>Now</time></li><li className="future"><span /><div><strong>Verification decision history</strong><p>Every approval and rejection is retained.</p></div></li></ol></section></div>
+        <main className="content">{activeView === 'verification' ? <VerificationWorkspace query={searchQuery} /> : activeView === 'configuration' ? <FinanceConfiguration/> : activeView === 'provider' || activeView === 'flags' || activeView === 'limits' ? <AiConfiguration key={activeView} section={activeView}/> : activeView === 'invitations' || activeView === 'delivery' || activeView === 'usage' ? <OversightWorkspace key={activeView} view={activeView} query={searchQuery} onInvite={() => setInviteOpen(true)}/> : activeView === 'cases' ? <CaseWorkspace query={searchQuery}/> : activeView === 'users' || activeView === 'audit' ? <PlatformWorkspace view={activeView} query={searchQuery}/> : <>
+          <div className="page-heading"><div><p className="eyebrow">PLATFORM OPERATIONS</p><h1>Good morning, {identity.fullName.split(' ')[0]}.</h1><p>Manage dentist verification, patient support, and platform safety.</p></div>{isSuperAdmin && <Button ref={inviteButtonRef} className="primary-button compact" type="button" onPress={() => setInviteOpen(true)}><UserPlus />Invite admin</Button>}</div>
+          <OperationalOverview superAdmin={isSuperAdmin} navigate={view => setActiveView(view as typeof activeView)} />
         </>}
         </main>
       </div>
       {menuOpen && <button className="scrim" aria-label="Close navigation" onClick={closeMenu} />}
-      <InviteAdminDialog open={inviteOpen} onOpenChange={changeInviteOpen} onInvite={invite} preview={!supabase} />
+      {isSuperAdmin && <InviteAdminDialog open={inviteOpen} onOpenChange={changeInviteOpen} onInvite={invite} preview={!supabase} />}
     </div>
   )
 }
 
 export default function App() {
-  const [session, setSession] = useState<Session | null>(null)
   const [identity, setIdentity] = useState<AdminIdentity | null>(null)
   const [denied, setDenied] = useState(false)
   const [loading, setLoading] = useState(Boolean(supabase))
+  const [authError, setAuthError] = useState('')
+  const [passwordSetup, setPasswordSetup] = useState(false)
+  const setupIntent = useRef<'invite' | 'recovery' | null>(adminPasswordCallbackIntent)
+  const authGeneration = useRef(0)
 
   useEffect(() => {
     if (!supabase) return
-    void supabase.auth.getSession().then(async ({ data }) => {
-      const resolved = data.session ? await resolveIdentity(data.session) : null
-      setSession(data.session)
-      setIdentity(resolved)
-      setDenied(Boolean(data.session && !resolved))
-      setLoading(false)
+    const client = supabase
+    let cancelled = false
+    const settle = async (next: Session | null, generation: number) => {
+      try {
+        const resolved = next ? await resolveIdentity(next) : null
+        if (cancelled || generation !== authGeneration.current) return
+        setIdentity(resolved); setDenied(Boolean(next && !resolved)); setAuthError('')
+        setPasswordSetup(Boolean(next && resolved && setupIntent.current))
+      } catch {
+        if (cancelled || generation !== authGeneration.current) return
+        setIdentity(null); setDenied(false); setPasswordSetup(false)
+        setAuthError('Secure access could not be verified. Check your connection, then sign in again.')
+      } finally { if (!cancelled && generation === authGeneration.current) setLoading(false) }
+    }
+    const initialGeneration = ++authGeneration.current
+    void client.auth.getSession().then(({ data, error }) => {
+      if (cancelled || initialGeneration !== authGeneration.current) return
+      if (error) throw new Error('SESSION_FAILED')
+      return settle(data.session, initialGeneration)
+    }).catch(() => {
+      if (cancelled || initialGeneration !== authGeneration.current) return
+      setIdentity(null); setLoading(false); setAuthError('Secure access could not be verified. Check your connection, then sign in again.')
     })
-    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
-      setSession(next)
-      void (next ? resolveIdentity(next).then((resolved) => { setIdentity(resolved); setDenied(!resolved) }) : Promise.resolve(setIdentity(null)))
+    const { data } = client.auth.onAuthStateChange((event, next) => {
+      const generation = ++authGeneration.current
+      if (event === 'PASSWORD_RECOVERY') setupIntent.current = 'recovery'
+      if (event === 'SIGNED_OUT') setupIntent.current = null
+      // Drop privileged UI immediately while rechecking; stale promises cannot restore it.
+      if (!(event === 'USER_UPDATED' && setupIntent.current && next)) {
+        setIdentity(null); setDenied(false); setPasswordSetup(false); setLoading(Boolean(next))
+      }
+      queueMicrotask(() => { if (!cancelled && generation === authGeneration.current) void settle(next, generation) })
     })
-    return () => data.subscription.unsubscribe()
+    return () => { cancelled = true; data.subscription.unsubscribe() }
   }, [])
 
-  const signOut = () => {
-    if (session && supabase) void supabase.auth.signOut()
-    setIdentity(null)
-    setSession(null)
-    setDenied(false)
+  const signOut = async () => {
+    ++authGeneration.current; setupIntent.current = null
+    setIdentity(null); setDenied(false); setPasswordSetup(false); setAuthError(''); setLoading(false)
+    try {
+      if (supabase) { const result = await supabase.auth.signOut(); if (result.error) throw new Error('SIGN_OUT_FAILED') }
+    } catch { setAuthError('Sign-out could not be confirmed. Close this tab on shared devices and retry when connected.') }
   }
-  const demoIdentity = useMemo<AdminIdentity>(() => ({ fullName: 'Administrator', email: 'preview@amardentist.local', roles: ['super_admin'] }), [])
   if (loading) return <div className="loading"><span /><p>Checking secure access…</p></div>
-  if (denied) return <AccessDenied onSignOut={signOut} />
-  if (!identity) return <SignIn onDemo={() => setIdentity(demoIdentity)} onDenied={() => setDenied(true)} />
-  return <Console identity={identity} onSignOut={signOut} />
+  if (denied) return <AccessDenied onSignOut={() => void signOut()} />
+  if (!identity) return <>{authError && <div className="alert" role="alert">{authError}</div>}<SignIn onDemo={role => {
+    if (!supabase && demoAllowed) setIdentity({ fullName: 'Administrator', email: 'preview@amardentist.local', roles: [role] })
+  }} onDenied={() => setDenied(true)} /></>
+  if (passwordSetup && supabase) return <CompleteAdminAccess onComplete={() => {
+    setupIntent.current = null; setPasswordSetup(false)
+    if (window.location.pathname === '/auth/callback') window.history.replaceState(null, '', '/')
+  }} />
+  return <Console identity={identity} onSignOut={() => void signOut()} />
 }
