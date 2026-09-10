@@ -93,7 +93,7 @@ it('does not query invitations for an ordinary Admin and uses exact scoped count
 it('queries only unexpired pending invitations for Super Admin and navigates to their queue', async () => {
   const navigate = vi.fn()
   render(<OperationalOverview superAdmin navigate={navigate} />)
-  fireEvent.click(await screen.findByRole('button', { name: 'Open pending admin invitations' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'View invitations' }))
   expect(navigate).toHaveBeenCalledWith('invitations')
   const query = chains.get('admin_invitations')!
   expect(query.select).toHaveBeenCalledWith('id', { count: 'exact', head: true })
@@ -117,4 +117,13 @@ it('preserves explicit sample data without contacting the database in preview', 
   render(<OperationalOverview superAdmin navigate={vi.fn()} />)
   expect(await screen.findByText('2 in sample data')).toBeInTheDocument()
   expect(mocks.from).not.toHaveBeenCalled()
+})
+
+it('uses concise action labels without changing destination semantics', async () => {
+  const navigate = vi.fn()
+  render(<OperationalOverview superAdmin={false} navigate={navigate} />)
+  fireEvent.click(await screen.findByRole('button', { name: 'Review dentists' }))
+  fireEvent.click(screen.getByRole('button', { name: 'View cases' }))
+  expect(navigate.mock.calls).toEqual([['verification'], ['cases']])
+  expect(screen.queryByRole('button', { name: /Open open|Open dentists/ })).not.toBeInTheDocument()
 })

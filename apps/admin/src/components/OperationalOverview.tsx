@@ -73,8 +73,8 @@ export function OperationalOverview({ superAdmin, navigate }: { superAdmin: bool
     void Promise.resolve().then(() => active ? load() : []).then(result => { if (active) setCounts(result) }).catch(() => { if (active) setError(true) }).finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [superAdmin, revision])
-  return <section className="panel data-panel" aria-label="Action centre"><div className="panel-heading"><h2>Action centre</h2><Button className="secondary-button" isDisabled={loading} onPress={() => setRevision(value => value + 1)}>Refresh overview</Button></div>
-    {loading ? <p role="status">Loading current work…</p> : error ? <p role="alert">Current counts are unavailable. Refresh to retry.</p> : <div className="case-list">{counts.map(item => <article key={item.view}><div><strong>{item.label}</strong><p>{item.value} {supabase ? 'currently waiting' : 'in sample data'}</p></div><Button className="secondary-button" onPress={() => navigate(item.view)}>Open {item.label.toLowerCase()}</Button></article>)}</div>}
+  return <section className="panel data-panel action-centre" aria-label="Action centre"><div className="panel-heading"><h2>Action centre</h2><Button className="secondary-button" isDisabled={loading} onPress={() => setRevision(value => value + 1)}>Refresh overview</Button></div>
+    {loading ? <p role="status">Loading current work…</p> : error ? <p role="alert">Current counts are unavailable. Refresh to retry.</p> : <div className="case-list">{counts.map(item => <article key={item.view}><div><strong>{item.label}</strong><p>{item.value} {supabase ? 'currently waiting' : 'in sample data'}</p></div><Button className="secondary-button" onPress={() => navigate(item.view)}>{item.view === 'verification' ? 'Review dentists' : item.view === 'cases' ? 'View cases' : 'View invitations'}</Button></article>)}</div>}
     <p className="config-note">Database-enforced permissions. Operational Admins handle verification and support; Super Admins additionally manage access, safety settings, and platform oversight.</p>
   </section>
 }

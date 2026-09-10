@@ -14,6 +14,6 @@ test('case decisions require reasons and fit narrow screens',async({page},testIn
   await page.screenshot({path:`${verificationDir}admin-cases-${testInfo.project.name}.png`,fullPage:true})
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true)
   await page.getByRole('button',{name:'Save case decision'}).click()
-  await expect(page.getByRole('status')).toContainText('Case updated')
+  await expect(page.getByRole('status').filter({hasText:'Preview only: sample case updated for this visit. Nothing was saved or audited.'})).toBeVisible()
   await expect(page.getByRole('button',{name:/moderation · resolved/})).toBeVisible()
 })

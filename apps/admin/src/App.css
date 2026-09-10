@@ -48,3 +48,14 @@ label { display:grid; gap:8px; color:var(--text); font-size:13px; font-weight:75
 .config-form .inline-check { display:flex; flex-direction:row; align-items:center; gap:12px; }
 .config-form .inline-check input { width:24px; min-height:24px; }
 @media(max-width:760px) { .case-workspace { grid-template-columns:minmax(0,1fr); } }
+
+/* Keep the preview disclosure aligned with the workspace, not nested form notes. */
+.workspace > .config-note { margin:18px clamp(24px,4vw,58px) 0; }
+.action-centre .panel-heading { flex-wrap:wrap; gap:12px; }
+.action-centre .case-list article > div { min-width:0; }
+.action-centre .case-list article > button { flex-shrink:0; }
+@media (max-width:720px) { .workspace > .config-note { margin-inline:18px; } }
+@media (max-width:600px) {
+  .action-centre .case-list article { flex-direction:column; align-items:stretch; gap:12px; }
+  .action-centre .case-list article > button { align-self:flex-start; }
+}
