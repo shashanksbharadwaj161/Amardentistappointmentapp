@@ -28,6 +28,7 @@ export type AppRoute =
   | '/patient/payments'
   | '/patient/profiles'
   | '/patient/records'
+  | '/patient/support'
   | '/professional'
   | '/professional/business'
   | '/professional/calendar'
@@ -65,6 +66,7 @@ const patientPrimary: readonly NavigationItem[] = [
 ]
 
 const patientSecondary: readonly NavigationItem[] = [
+  { id: 'contact-support', label: 'contactSupport', href: '/patient/support', icon: 'inbox', activePrefixes: ['/patient/support'] },
   { id: 'profiles', label: 'profileFamily', href: '/patient/profiles', icon: 'profiles', activePrefixes: ['/patient/profiles'] },
   { id: 'assistant', label: 'careAssistant', href: '/patient/assistant', icon: 'assistant', activePrefixes: ['/patient/assistant'] },
   { id: 'payments', label: 'payments', href: '/patient/payments', icon: 'payments', activePrefixes: ['/patient/payments'] },
@@ -115,7 +117,7 @@ export function getBottomNavigation(mode: AppMode, roles: readonly AppRole[]): N
   const items = effectiveMode === 'professional' ? professionalPrimary : patientPrimary
   const overflowPaths = effectiveMode === 'professional'
     ? ['/professional/clinic-application', '/professional/dentist-application', '/professional/manage-schedule', '/professional/team', '/professional/business']
-    : ['/patient/profiles', '/patient/assistant', '/patient/payments', '/professional/clinic-application', '/professional/dentist-application']
+    : ['/patient/support', '/patient/profiles', '/patient/assistant', '/patient/payments', '/professional/clinic-application', '/professional/dentist-application']
   const moreItem: NavigationItem = {
     ...accountItem,
     label: 'more',

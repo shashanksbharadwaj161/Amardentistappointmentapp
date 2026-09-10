@@ -1,5 +1,6 @@
 export const navigationMessages = {
   en: {
+    contactSupport: 'Contact support',
     account: 'Account',
     accountSubtitle: 'Language, workspace, and account access',
     care: 'Care',
@@ -26,6 +27,7 @@ export const navigationMessages = {
     workspace: 'Workspace',
   },
   bn: {
+    contactSupport: 'সহায়তায় যোগাযোগ',
     account: 'অ্যাকাউন্ট',
     accountSubtitle: 'ভাষা, কর্মক্ষেত্র ও অ্যাকাউন্ট প্রবেশ',
     care: 'সেবা',

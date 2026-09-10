@@ -34,6 +34,9 @@ describe('app navigation', () => {
   it('selects More for compact overflow destinations', () => {
     const patientItems = getBottomNavigation('patient', patient.roles)
     expect(getActiveNavigationItemId('/patient/profiles', patientItems)).toBe('account')
+    expect(getActiveNavigationItemId('/patient/support', patientItems)).toBe('account')
+    const sidebar = getNavigationGroups('patient', patient.roles).flatMap(group => group.items)
+    expect(getActiveNavigationItemId('/patient/support', sidebar)).toBe('contact-support')
     expect(getActiveNavigationItemId('/patient/assistant', patientItems)).toBe('account')
     expect(getActiveNavigationItemId('/professional/dentist-application', patientItems)).toBe('account')
 
