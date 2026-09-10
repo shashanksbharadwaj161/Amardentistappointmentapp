@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ClinicalEncounterScreen, { isPrescriptionFinalized, reconcileEncounterNotes } from '../../app/professional/encounter'
-import { finalizeEncounter, finalizePrescription, openClinicalEncounter, saveEncounter } from '../lib/phase4'
+import { finalizeEncounter, finalizePrescription, openClinicalEncounter, saveAndFinalizeEncounter, saveEncounter } from '../lib/phase4'
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }))
 jest.mock('expo-router', () => ({ Redirect: () => null, Stack: { Screen: () => null }, router: { push: jest.fn(), back: jest.fn() }, useLocalSearchParams: () => ({ appointmentId: 'appt1' }) }))
@@ -12,7 +12,7 @@ jest.mock('../components/Screen', () => ({ Screen: ({ children }: { children: Re
 jest.mock('../lib/phase4', () => ({
   openClinicalEncounter: jest.fn(), saveEncounter: jest.fn(), addDiagnosis: jest.fn(), saveToothObservation: jest.fn(),
   savePrescription: jest.fn(), finalizePrescription: jest.fn(), createAndFinalizeTreatmentPlan: jest.fn(),
-  getClinicalMediaDownloadUrl: jest.fn(), uploadClinicalMedia: jest.fn(), finalizeEncounter: jest.fn(),
+  getClinicalMediaDownloadUrl: jest.fn(), uploadClinicalMedia: jest.fn(), finalizeEncounter: jest.fn(), saveAndFinalizeEncounter: jest.fn(),
 }))
 
 const item = { id: 'i1', medicineName: 'Amoxicillin', strength: '500 mg', dosage: '1 capsule', route: 'oral', frequency: 'Every 8 hours', duration: '5 days', instructions: '' }
@@ -24,7 +24,7 @@ function bundle(overrides: { encounter?: Record<string, unknown>; prescriptions?
 function show() {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}><ClinicalEncounterScreen /></QueryClientProvider>)
 }
-beforeEach(() => jest.clearAllMocks())
+beforeEach(() => { jest.clearAllMocks(); jest.mocked(saveAndFinalizeEncounter).mockResolvedValue(undefined) })
 
 it('gives an existing draft prescription an explicit dentist-only finalize control that finalizes it', async () => {
   jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ prescriptions: [{ id: 'rx1', status: 'draft', finalizedAt: null, instructions: '', documentPath: null, items: [item] }] }) as never)
@@ -86,6 +86,74 @@ it('takes the updated note (and preserves it on save) when the dentist chooses u
   expect(jest.mocked(saveEncounter).mock.calls[0]![0]).toMatchObject({ assessment: 'AI updated' })
 })
 
+it('retains both conflict values and blocks save/finalize across identical repeated refetches and later server updates', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  await conflictReady(client)
+  for (let revision = 1; revision <= 2; revision++) {
+    // A changed record revision forces an effect even when the structured notes are identical.
+    jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: { assessment: 'AI updated', revision } }) as never)
+    await act(async () => { await client.invalidateQueries({ queryKey: ['clinical-encounter', 'appt1'] }) })
+    expect(screen.getByText('noteConflictTitle')).toBeTruthy()
+    expect(screen.getByText('AI updated')).toBeTruthy()
+    expect(screen.getByDisplayValue('my edit')).toBeTruthy()
+    await fireEvent.press(screen.getByRole('button', { name: 'saveDraft' }))
+    await fireEvent.press(screen.getByRole('button', { name: /finalizeEncounter/ }))
+    expect(saveEncounter).not.toHaveBeenCalled()
+    expect(finalizeEncounter).not.toHaveBeenCalled()
+    expect(saveAndFinalizeEncounter).not.toHaveBeenCalled()
+  }
+  await fireEvent.changeText(screen.getByLabelText('assessment'), 'my newer edit')
+  jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: { assessment: 'AI newer' } }) as never)
+  await act(async () => { await client.invalidateQueries({ queryKey: ['clinical-encounter', 'appt1'] }) })
+  await waitFor(() => expect(screen.getByText('AI newer')).toBeTruthy())
+  expect(screen.getByDisplayValue('my newer edit')).toBeTruthy()
+  expect(screen.getByText('my newer edit')).toBeTruthy()
+  expect(screen.getByText('noteConflictTitle')).toBeTruthy()
+  await fireEvent.press(screen.getByRole('button', { name: 'useUpdatedNote' }))
+  expect(screen.queryByText('noteConflictTitle')).toBeNull()
+  expect(screen.getByDisplayValue('AI newer')).toBeTruthy()
+})
+
+it('does not clear a conflict when pre-finalize refetch and its effect apply the same server result', async () => {
+  jest.mocked(openClinicalEncounter)
+    .mockResolvedValueOnce(bundle({ encounter: { assessment: 'orig' } }) as never)
+    .mockResolvedValue(bundle({ encounter: { assessment: 'AI updated' } }) as never)
+  jest.mocked(saveEncounter).mockResolvedValue(undefined)
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+  await waitFor(() => expect(screen.getByDisplayValue('orig')).toBeTruthy())
+  await fireEvent.changeText(screen.getByLabelText('assessment'), 'my edit')
+  await fireEvent.press(screen.getByRole('button', { name: /finalizeEncounter/ }))
+  await waitFor(() => expect(screen.getByText('noteConflictTitle')).toBeTruthy())
+  await act(async () => { await client.invalidateQueries({ queryKey: ['clinical-encounter', 'appt1'] }) })
+  await fireEvent.press(screen.getByRole('button', { name: /finalizeEncounter/ }))
+  await fireEvent.press(screen.getByRole('button', { name: 'saveDraft' }))
+  expect(saveEncounter).not.toHaveBeenCalled()
+  expect(finalizeEncounter).not.toHaveBeenCalled()
+  expect(saveAndFinalizeEncounter).not.toHaveBeenCalled()
+  expect(screen.getByText('AI updated')).toBeTruthy()
+  expect(screen.getByDisplayValue('my edit')).toBeTruthy()
+  expect(screen.getByText('noteConflictTitle')).toBeTruthy()
+})
+
+it('uses the submitted snapshot as save baseline and preserves edits made while saving', async () => {
+  jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: { assessment: 'orig' } }) as never)
+  let finishSave!: () => void
+  jest.mocked(saveEncounter).mockImplementation(() => new Promise<void>(resolve => { finishSave = resolve }))
+  show()
+  await waitFor(() => expect(screen.getByDisplayValue('orig')).toBeTruthy())
+  await fireEvent.changeText(screen.getByLabelText('assessment'), 'submitted note')
+  await fireEvent.press(screen.getByRole('button', { name: 'saveDraft' }))
+  await waitFor(() => expect(saveEncounter).toHaveBeenCalledTimes(1))
+  await fireEvent.changeText(screen.getByLabelText('assessment'), 'new unsaved note')
+  jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: { assessment: 'submitted note' } }) as never)
+  await act(async () => { finishSave() })
+  await waitFor(() => expect(openClinicalEncounter).toHaveBeenCalledTimes(2))
+  expect(jest.mocked(saveEncounter).mock.calls[0]![0]).toMatchObject({ assessment: 'submitted note' })
+  expect(screen.getByDisplayValue('new unsaved note')).toBeTruthy()
+  expect(screen.queryByText('noteConflictTitle')).toBeNull()
+})
+
 it('blocks finalizing when the pre-finalize refresh fails, so stale notes are not published', async () => {
   jest.mocked(openClinicalEncounter)
     .mockResolvedValueOnce(bundle({ encounter: { assessment: 'orig' } }) as never)
@@ -98,6 +166,35 @@ it('blocks finalizing when the pre-finalize refresh fails, so stale notes are no
   expect(finalizeEncounter).not.toHaveBeenCalled()
   expect(saveEncounter).not.toHaveBeenCalled()
   expect(screen.getByDisplayValue('orig')).toBeTruthy() // editing screen and notes preserved
+})
+
+it('finalizes with one atomic request using fresh server expectations rather than merged local notes', async () => {
+  const server = { chiefComplaint: 'original complaint', objectiveNotes: 'exam', assessment: 'assessment', plan: 'plan' }
+  jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: server }) as never)
+  show()
+  await waitFor(() => expect(screen.getByDisplayValue('original complaint')).toBeTruthy())
+  await fireEvent.changeText(screen.getByLabelText('chiefComplaint'), 'local complaint')
+  await fireEvent.press(screen.getByRole('button', { name: /finalizeEncounter/ }))
+  await waitFor(() => expect(saveAndFinalizeEncounter).toHaveBeenCalledTimes(1))
+  expect(jest.mocked(saveAndFinalizeEncounter).mock.calls[0]![0]).toMatchObject({ chiefComplaint: 'local complaint', objectiveNotes: 'exam', assessment: 'assessment', plan: 'plan' })
+  expect(jest.mocked(saveAndFinalizeEncounter).mock.calls[0]![1]).toEqual({ complaint: 'original complaint', subjective: '', objective: 'exam', assessment: 'assessment', plan: 'plan' })
+  expect(saveEncounter).not.toHaveBeenCalled()
+  expect(finalizeEncounter).not.toHaveBeenCalled()
+  await waitFor(() => expect(screen.getByText('encounterFinalized')).toBeTruthy())
+})
+
+it('preserves the edited draft and reports stale state when the atomic request detects a changed record', async () => {
+  jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: { chiefComplaint: 'original', objectiveNotes: 'exam', assessment: 'assessment', plan: 'plan' } }) as never)
+  jest.mocked(saveAndFinalizeEncounter).mockRejectedValue(new Error('CLINICAL_RECORD_CHANGED'))
+  show()
+  await waitFor(() => expect(screen.getByDisplayValue('original')).toBeTruthy())
+  await fireEvent.changeText(screen.getByLabelText('chiefComplaint'), 'unsaved dentist edit')
+  await fireEvent.press(screen.getByRole('button', { name: /finalizeEncounter/ }))
+  await waitFor(() => expect(screen.getByText('refreshFailedStale')).toBeTruthy())
+  expect(screen.getByDisplayValue('unsaved dentist edit')).toBeTruthy()
+  expect(screen.queryByText('encounterFinalized')).toBeNull()
+  expect(saveEncounter).not.toHaveBeenCalled()
+  expect(finalizeEncounter).not.toHaveBeenCalled()
 })
 
 describe('reconcileEncounterNotes', () => {

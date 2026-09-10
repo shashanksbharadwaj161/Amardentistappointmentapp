@@ -9,7 +9,7 @@ import { Button } from '../../src/components/Button'
 import { Field } from '../../src/components/Field'
 import { Screen } from '../../src/components/Screen'
 import { SectionCard } from '../../src/components/SectionCard'
-import { addDiagnosis, createAndFinalizeTreatmentPlan, finalizeEncounter, finalizePrescription, getClinicalMediaDownloadUrl, openClinicalEncounter, saveEncounter, savePrescription, saveToothObservation, uploadClinicalMedia } from '../../src/lib/phase4'
+import { addDiagnosis, createAndFinalizeTreatmentPlan, finalizePrescription, getClinicalMediaDownloadUrl, openClinicalEncounter, saveAndFinalizeEncounter, saveEncounter, savePrescription, saveToothObservation, uploadClinicalMedia } from '../../src/lib/phase4'
 import { useAuth } from '../../src/providers/AuthProvider'
 import { useLocale } from '../../src/providers/LocaleProvider'
 import { colors, radius, spacing } from '../../src/theme'
@@ -61,6 +61,7 @@ export default function ClinicalEncounterScreen() {
   notesRef.current = notes
   const baselineRef = useRef<EncounterNoteFields | null>(null)
   const [conflicts, setConflicts] = useState<NoteConflicts>({})
+  const conflictsRef = useRef<NoteConflicts>({})
   const [diagnosis, setDiagnosis] = useState('')
   const [diagnosisCode, setDiagnosisCode] = useState('')
   const [toothCode, setToothCode] = useState('')
@@ -79,21 +80,29 @@ export default function ClinicalEncounterScreen() {
   const [mediaCaption, setMediaCaption] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
+  const finalizingRef = useRef(false)
 
   // Merge newly loaded server notes into the editable fields. Un-edited fields adopt the server
   // value (so applied AI notes surface); an edited field is preserved, and if the server also
   // changed it the clash is recorded so neither value is lost until the dentist resolves it.
   // Returns whether any unresolved conflict now exists.
   const applyServerNotes = (server: EncounterNoteFields): boolean => {
-    if (!baselineRef.current) { baselineRef.current = server; notesRef.current = server; setNotes(server); setConflicts({}); return false }
+    if (!baselineRef.current) { baselineRef.current = server; notesRef.current = server; setNotes(server); conflictsRef.current = {}; setConflicts({}); return false }
     const { next, conflicts: conflicted } = reconcileEncounterNotes(server, notesRef.current, baselineRef.current)
     const map: NoteConflicts = {}
-    for (const key of conflicted) map[key] = { mine: notesRef.current[key], incoming: server[key] }
+    for (const key of NOTE_KEYS) {
+      // Once raised, a conflict requires an explicit dentist choice. Advancing the
+      // server baseline or fetching identical data must never dismiss that choice.
+      if (conflictsRef.current[key] || conflicted.includes(key)) {
+        next[key] = notesRef.current[key]
+        map[key] = { mine: notesRef.current[key], incoming: server[key] }
+      }
+    }
     baselineRef.current = server
     notesRef.current = next
     setNotes(next)
-    setConflicts(map)
-    return conflicted.length > 0
+    conflictsRef.current = map; setConflicts(map)
+    return Object.keys(map).length > 0
   }
 
   useEffect(() => {
@@ -106,23 +115,35 @@ export default function ClinicalEncounterScreen() {
   if (!loading && !profile) return <Redirect href="/" />
   if (!profile) return null
 
-  const updateNote = (key: keyof EncounterNoteFields, value: string) => setNotes((current) => ({ ...current, [key]: value }))
-  const keepMine = (key: keyof EncounterNoteFields) => setConflicts((current) => { const next = { ...current }; delete next[key]; return next })
-  const useUpdated = (key: keyof EncounterNoteFields) => {
-    const incoming = conflicts[key]?.incoming
+  const updateNote = (key: keyof EncounterNoteFields, value: string) => {
+    if (finalizingRef.current) return
+    const updated = { ...notesRef.current, [key]: value }; notesRef.current = updated; setNotes(updated)
+    if (conflictsRef.current[key]) {
+      const next = { ...conflictsRef.current, [key]: { ...conflictsRef.current[key]!, mine: value } }
+      conflictsRef.current = next; setConflicts(next)
+    }
+  }
+  const keepMine = (key: keyof EncounterNoteFields) => {
+    const next = { ...conflictsRef.current }; delete next[key]
+    conflictsRef.current = next; setConflicts(next)
+  }
+  const acceptUpdated = (key: keyof EncounterNoteFields) => {
+    const incoming = conflictsRef.current[key]?.incoming
     if (incoming !== undefined) { const updated = { ...notesRef.current, [key]: incoming }; notesRef.current = updated; setNotes(updated) }
-    setConflicts((current) => { const next = { ...current }; delete next[key]; return next })
+    keepMine(key)
   }
   const refresh = async () => { await queryClient.invalidateQueries({ queryKey: ['clinical-encounter', appointmentId] }) }
   const persistNotes = async (): Promise<boolean> => {
-    if (Object.keys(conflicts).length > 0) { setMessage(t('resolveConflictsFirst')); return false }
+    if (Object.keys(conflictsRef.current).length > 0) { setMessage(t('resolveConflictsFirst')); return false }
     const encounterId = record.data?.encounter.id
-    const current = notesRef.current
+    const current = { ...notesRef.current }
     const parsed = clinicalEncounterSchema.safeParse({ encounterId, chiefComplaint: current.complaint, subjectiveNotes: current.subjective, objectiveNotes: current.objective, assessment: current.assessment, plan: current.plan, changeReason: 'Clinical note reviewed' })
     if (!parsed.success) { setMessage(t('checkClinicalFields')); return false }
-    try { await saveEncounter(parsed.data); baselineRef.current = { ...notesRef.current }; return true } catch { setMessage(t('clinicalActionFailed')); return false }
+    const submitted: EncounterNoteFields = { complaint: parsed.data.chiefComplaint, subjective: parsed.data.subjectiveNotes, objective: parsed.data.objectiveNotes, assessment: parsed.data.assessment, plan: parsed.data.plan }
+    try { await saveEncounter(parsed.data); baselineRef.current = submitted; return true } catch { setMessage(t('clinicalActionFailed')); return false }
   }
   const saveNotes = async () => {
+    if (busy || finalizingRef.current) return
     setBusy('notes'); setMessage(null)
     const saved = await persistNotes()
     if (saved) { setMessage(t('clinicalDraftSaved')); await refresh() }
@@ -171,20 +192,28 @@ export default function ClinicalEncounterScreen() {
     try { const url = await getClinicalMediaDownloadUrl(storagePath); if (url) await Linking.openURL(url) } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
   }
   const finalize = async () => {
-    if (!record.data) return
+    if (!record.data || busy || finalizingRef.current) return
+    finalizingRef.current = true
     setBusy('finalize'); setMessage(null)
     try {
-      if (Object.keys(conflicts).length > 0) { setMessage(t('resolveConflictsFirst')); return }
+      if (Object.keys(conflictsRef.current).length > 0) { setMessage(t('resolveConflictsFirst')); return }
       // Refresh before publishing; a failed refetch means we cannot prove the notes are current,
       // so finalizing is blocked rather than risk publishing a stale record to the patient.
       const latest = await record.refetch()
       if (latest.isError || !latest.data) { setMessage(t('refreshFailedStale')); return }
       const e = latest.data.encounter
-      const hasConflict = applyServerNotes({ complaint: e.chiefComplaint, subjective: e.subjectiveNotes, objective: e.objectiveNotes, assessment: e.assessment, plan: e.plan })
+      const expectedNotes: EncounterNoteFields = { complaint: e.chiefComplaint, subjective: e.subjectiveNotes, objective: e.objectiveNotes, assessment: e.assessment, plan: e.plan }
+      const hasConflict = applyServerNotes(expectedNotes)
       if (hasConflict) { setMessage(t('resolveConflictsFirst')); return }
-      const saved = await persistNotes(); if (!saved) return
-      await finalizeEncounter(record.data.encounter.id); setMessage(t('encounterFinalized')); await refresh()
-    } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
+      const current = { ...notesRef.current }
+      const parsed = clinicalEncounterSchema.safeParse({ encounterId: e.id, chiefComplaint: current.complaint, subjectiveNotes: current.subjective, objectiveNotes: current.objective, assessment: current.assessment, plan: current.plan, changeReason: 'Clinical fields reviewed and finalized' })
+      if (!parsed.success) { setMessage(t('checkClinicalFields')); return }
+      await saveAndFinalizeEncounter(parsed.data, expectedNotes)
+      baselineRef.current = { complaint: parsed.data.chiefComplaint, subjective: parsed.data.subjectiveNotes, objective: parsed.data.objectiveNotes, assessment: parsed.data.assessment, plan: parsed.data.plan }
+      setMessage(t('encounterFinalized')); await refresh()
+    } catch (error) {
+      setMessage(t(error instanceof Error && error.message === 'CLINICAL_RECORD_CHANGED' ? 'refreshFailedStale' : 'clinicalActionFailed'))
+    } finally { finalizingRef.current = false; setBusy(null) }
   }
 
   if (record.isLoading) return <Screen><ActivityIndicator color={colors.teal} /></Screen>
@@ -208,18 +237,18 @@ export default function ClinicalEncounterScreen() {
         <Text style={styles.conflictLabel}>{t('noteConflictUpdated')}</Text><Text style={styles.conflictValue}>{conflicts[key]!.incoming || '—'}</Text>
         <View style={styles.conflictActions}>
           <Button label={t('keepMyEdit')} variant="secondary" onPress={() => keepMine(key)} />
-          <Button label={t('useUpdatedNote')} variant="ghost" onPress={() => useUpdated(key)} />
+          <Button label={t('useUpdatedNote')} variant="ghost" onPress={() => acceptUpdated(key)} />
         </View>
       </View>)}
     </View> : null}
     {record.data?.encounter.status === 'draft' ? <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/professional/ai-review', params: { appointmentId: record.data!.encounter.appointmentId } })} style={styles.aiCard}><BrainCircuit size={24} color={colors.mint} /><View style={styles.flex}><Text style={styles.aiTitle}>{t('aiReviewWorkspace')}</Text><Text style={styles.aiBody}>{t('aiDentistSafety')}</Text></View></Pressable> : null}
     <View style={[styles.columns, width >= 800 && styles.columnsWide]}>
       <View style={styles.column}><SectionCard eyebrow={t('progressNotes').toUpperCase()} title={t('structuredClinicalNote')}>
-        <Field label={t('chiefComplaint')} value={notes.complaint} onChangeText={(value) => updateNote('complaint', value)} editable={editable} multiline />
-        <Field label={t('subjective')} value={notes.subjective} onChangeText={(value) => updateNote('subjective', value)} editable={editable} multiline />
-        <Field label={t('objective')} value={notes.objective} onChangeText={(value) => updateNote('objective', value)} editable={editable} multiline />
-        <Field label={t('assessment')} value={notes.assessment} onChangeText={(value) => updateNote('assessment', value)} editable={editable} multiline />
-        <Field label={t('carePlan')} value={notes.plan} onChangeText={(value) => updateNote('plan', value)} editable={editable} multiline />
+        <Field label={t('chiefComplaint')} value={notes.complaint} onChangeText={(value) => updateNote('complaint', value)} editable={editable && busy !== 'finalize'} multiline />
+        <Field label={t('subjective')} value={notes.subjective} onChangeText={(value) => updateNote('subjective', value)} editable={editable && busy !== 'finalize'} multiline />
+        <Field label={t('objective')} value={notes.objective} onChangeText={(value) => updateNote('objective', value)} editable={editable && busy !== 'finalize'} multiline />
+        <Field label={t('assessment')} value={notes.assessment} onChangeText={(value) => updateNote('assessment', value)} editable={editable && busy !== 'finalize'} multiline />
+        <Field label={t('carePlan')} value={notes.plan} onChangeText={(value) => updateNote('plan', value)} editable={editable && busy !== 'finalize'} multiline />
         {editable ? <Button label={t('saveDraft')} loading={busy === 'notes'} onPress={() => void saveNotes()} /> : <View style={styles.finalBadge}><CheckCircle2 size={17} color={colors.success} /><Text style={styles.finalText}>{t('finalizedRecord')}</Text></View>}
       </SectionCard></View>
       <View style={styles.column}>

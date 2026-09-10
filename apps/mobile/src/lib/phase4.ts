@@ -75,6 +75,20 @@ export async function saveEncounter(input: ClinicalEncounterInput): Promise<void
   if (error) throw new Error(error.message)
 }
 
+export type EncounterExpectedNotes = { complaint: string; subjective: string; objective: string; assessment: string; plan: string }
+
+// The snapshot is the freshly read server record, not the merged local draft.
+// Postgres compares it under lock and saves/finalizes atomically, or rejects all changes.
+export async function saveAndFinalizeEncounter(input: ClinicalEncounterInput, expectedNotes: EncounterExpectedNotes): Promise<void> {
+  if (!supabase || previewEnabled) return
+  const { error } = await supabase.rpc('save_and_finalize_clinical_encounter', {
+    target_encounter_id: input.encounterId, expected_notes: { ...expectedNotes },
+    complaint: input.chiefComplaint, subjective: input.subjectiveNotes, objective: input.objectiveNotes,
+    assessment_text: input.assessment, plan_text: input.plan, change_reason: input.changeReason,
+  })
+  if (error) throw new Error(error.code === '40001' || error.message === 'CLINICAL_RECORD_CHANGED' ? 'CLINICAL_RECORD_CHANGED' : 'CLINICAL_FINALIZATION_FAILED')
+}
+
 export async function addDiagnosis(input: ClinicalDiagnosisInput): Promise<string> {
   if (!supabase || previewEnabled) return id()
   const { data, error } = await supabase.rpc('add_clinical_diagnosis', { target_encounter_id: input.encounterId, diagnosis_code: input.code, diagnosis_text: input.diagnosis, diagnosis_notes: input.notes })
