@@ -8,6 +8,8 @@ values
   ('30000000-0000-4000-8000-000000000003', 'authenticated', 'authenticated', 'booking-patient@example.test', now(), '{"full_name":"Booking Patient"}'),
   ('30000000-0000-4000-8000-000000000004', 'authenticated', 'authenticated', 'other-patient@example.test', now(), '{"full_name":"Other Patient"}'),
   ('30000000-0000-4000-8000-000000000005', 'authenticated', 'authenticated', 'front-desk@example.test', now(), '{"full_name":"Front Desk"}');
+insert into public.user_roles(user_id,role) values
+  ('30000000-0000-4000-8000-000000000002','dentist');
 
 insert into public.clinics (id, name, slug, phone, address_line, district, city, status, approved_at, approved_by, created_by)
 values ('31000000-0000-4000-8000-000000000001', 'Booking Test Dental', 'booking-test-dental', '01700000000', '10 Test Road', 'Dhaka', 'Dhaka', 'approved', now(), '30000000-0000-4000-8000-000000000001', '30000000-0000-4000-8000-000000000001');

@@ -71,7 +71,8 @@ export async function loadVerificationDetails(item: VerificationQueueItem): Prom
   if (reviewerError) throw new Error(reviewerError.message)
   const reviewerNames = new Map((reviewers ?? []).map((reviewer) => [reviewer.id, reviewer.full_name]))
   const evidence = await Promise.all((documents ?? []).map(async (document) => {
-    const { data } = await client.storage.from('verification-documents').createSignedUrl(document.storage_path, 300)
+    const { data, error: signedUrlError } = await client.storage.from('verification-documents').createSignedUrl(document.storage_path, 300)
+    if (signedUrlError || !data?.signedUrl) throw new Error('PRIVATE_EVIDENCE_UNAVAILABLE')
     return { id: document.id, name: document.original_filename, kind: document.document_kind.replaceAll('_', ' '), createdAt: document.created_at, signedUrl: data?.signedUrl ?? null }
   }))
   return {

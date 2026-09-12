@@ -3,7 +3,7 @@ import { aiTaskRequestSchema, type PatientGuidance } from '@amar-dentist/domain'
 import { useQuery } from '@tanstack/react-query'
 import { Redirect, router, Stack } from 'expo-router'
 import { AlertTriangle, CalendarPlus2, MessageCircleHeart, ShieldCheck } from 'lucide-react-native'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Button } from '../../src/components/Button'
 import { Field } from '../../src/components/Field'
@@ -11,23 +11,65 @@ import { Screen } from '../../src/components/Screen'
 import { SectionCard } from '../../src/components/SectionCard'
 import { getPatientProfiles } from '../../src/lib/phase3'
 import { getAiFeatureFlags, runAiTask } from '../../src/lib/phase6'
+import { subscribeToAccessRefresh } from '../../src/lib/access-refresh'
 import { useAuth } from '../../src/providers/AuthProvider'
 import { useLocale } from '../../src/providers/LocaleProvider'
 import { colors, radius, spacing } from '../../src/theme'
 
 type PatientTask='symptom_intake'|'record_explanation'|'general_guidance'
 export default function PatientAssistantScreen(){
-  const{profile,loading}=useAuth();const{t,locale}=useLocale();const profiles=useQuery({queryKey:['patient-profiles',profile?.id],queryFn:()=>getPatientProfiles(profile!.id),enabled:Boolean(profile)});const flags=useQuery({queryKey:['ai-feature-flags'],queryFn:getAiFeatureFlags,enabled:Boolean(profile)})
+  const {profile,loading}=useAuth()
+  if(loading)return null
+  if(!profile)return <Redirect href="/"/>
+  return <PatientAssistantEditor key={profile.id} actorId={profile.id}/>
+}
+
+function PatientAssistantEditor({actorId}:{actorId:string}){
+  const{t,locale}=useLocale();const profiles=useQuery({queryKey:['patient-profiles',actorId],queryFn:()=>getPatientProfiles(actorId)})
   const[taskType,setTaskType]=useState<PatientTask>('symptom_intake');const[input,setInput]=useState('');const[result,setResult]=useState<PatientGuidance|null>(null);const[busy,setBusy]=useState(false);const[message,setMessage]=useState<string|null>(null)
-  if(!loading&&!profile)return<Redirect href="/"/>;if(!profile)return null
-  const aiEnabled=flags.data?.patientAi!==false
-  const submit=async()=>{if(!aiEnabled)return setMessage(t('aiFeatureDisabled'));const patientProfileId=profiles.data?.[0]?.id;const parsed=aiTaskRequestSchema.safeParse({taskType,patientProfileId,encounterId:null,mediaId:null,input,locale});if(!parsed.success)return setMessage(t('aiDescribeMore'));setBusy(true);setMessage(null);try{const response=await runAiTask(parsed.data);setResult(response.output as PatientGuidance)}catch(error){setMessage(error instanceof Error&&error.message==='AI_PROVIDER_NOT_CONFIGURED'?t('aiNotConfigured'):error instanceof Error&&error.message==='AI_FEATURE_DISABLED'?t('aiFeatureDisabled'):t('aiUnavailable'))}finally{setBusy(false)}}
+  const[flagState,setFlagState]=useState<'loading'|'enabled'|'disabled'|'error'>('loading')
+  const mounted=useRef(true);const requestGeneration=useRef(0);const enabled=useRef(false);const pendingRequest=useRef(false)
+  useEffect(()=>{
+    mounted.current=true;let pending=false;let cancelled=false
+    const refresh=async()=>{
+      if(pending)return;pending=true
+      try{
+        const flags=await getAiFeatureFlags()
+        if(cancelled||!mounted.current)return
+        enabled.current=flags.patientAi
+        setFlagState(flags.patientAi?'enabled':'disabled')
+        if(!flags.patientAi){++requestGeneration.current;pendingRequest.current=false;setResult(null);setBusy(false)}
+      }catch{
+        if(cancelled||!mounted.current)return
+        enabled.current=false;++requestGeneration.current;pendingRequest.current=false
+        setFlagState('error');setResult(null);setBusy(false)
+      }finally{pending=false}
+    }
+    void refresh();const stop=subscribeToAccessRefresh(()=>{void refresh()})
+    return()=>{cancelled=true;mounted.current=false;enabled.current=false;++requestGeneration.current;stop()}
+  },[])
+  const aiEnabled=flagState==='enabled'
+  const changeTask=(next:PatientTask)=>{if(next===taskType)return;++requestGeneration.current;pendingRequest.current=false;setBusy(false);setTaskType(next);setResult(null);setMessage(null)}
+  const submit=async()=>{
+    if(!mounted.current||pendingRequest.current)return
+    if(!enabled.current)return setMessage(t('aiFeatureDisabled'))
+    if(profiles.isPending||profiles.isError)return setMessage(t('aiUnavailable'))
+    const patientProfileId=profiles.data?.[0]?.id
+    const parsed=aiTaskRequestSchema.safeParse({taskType,patientProfileId,encounterId:null,mediaId:null,input,locale})
+    if(!parsed.success)return setMessage(t('aiDescribeMore'))
+    const ticket=++requestGeneration.current
+    const current=()=>mounted.current&&ticket===requestGeneration.current&&enabled.current
+    pendingRequest.current=true;setBusy(true);setMessage(null)
+    try{const response=await runAiTask(parsed.data);if(current())setResult(response.output as PatientGuidance)}
+    catch(error){if(current())setMessage(error instanceof Error&&error.message==='AI_PROVIDER_NOT_CONFIGURED'?t('aiNotConfigured'):error instanceof Error&&error.message==='AI_FEATURE_DISABLED'?t('aiFeatureDisabled'):t('aiUnavailable'))}
+    finally{if(current()){pendingRequest.current=false;setBusy(false)}}
+  }
   const options:[PatientTask,string][]=[['symptom_intake',t('aiSymptoms')],['record_explanation',t('aiExplainRecord')],['general_guidance',t('aiGeneralGuidance')]]
   return<Screen maxWidth={760} style={styles.screen}><Stack.Screen options={{title:t('careAssistant'),headerBackTitle:t('back')}}/>
     <View style={styles.hero}><View style={styles.heroIcon}><MessageCircleHeart size={28} color={colors.mint}/></View><Text style={styles.kicker}>{t('aiPatientEyebrow')}</Text><Text style={styles.title}>{t('careAssistant')}</Text><Text style={styles.subtitle}>{t('aiPatientBody')}</Text></View>
     <View style={styles.safety}><ShieldCheck size={19} color={colors.teal}/><Text style={styles.safetyText}>{t('aiPatientSafety')}</Text></View>
-    <View accessibilityRole="tablist" style={styles.tabs}>{options.map(([value,label])=><Pressable key={value} accessibilityRole="tab" accessibilityState={{selected:taskType===value}} onPress={()=>{setTaskType(value);setResult(null)}} style={[styles.tab,taskType===value&&styles.tabActive]}><Text style={[styles.tabText,taskType===value&&styles.tabTextActive]}>{label}</Text></Pressable>)}</View>
-    <SectionCard eyebrow={t('oneClearStep').toUpperCase()} title={taskType==='symptom_intake'?t('aiTellSymptoms'):taskType==='record_explanation'?t('aiChooseRecordPrompt'):t('aiAskGeneral')}><Field label={t('aiYourMessage')} value={input} onChangeText={setInput} editable={aiEnabled} multiline numberOfLines={5} textAlignVertical="top" placeholder={t('aiPromptPlaceholder')} />{!aiEnabled?<Text accessibilityRole="alert" style={styles.error}>{t('aiFeatureDisabled')}</Text>:message?<Text accessibilityRole="alert" style={styles.error}>{message}</Text>:null}<Button label={t('aiGetGuidance')} disabled={!aiEnabled} loading={busy} onPress={()=>void submit()}/></SectionCard>
+    <View accessibilityRole="tablist" style={styles.tabs}>{options.map(([value,label])=><Pressable key={value} accessibilityRole="tab" accessibilityState={{selected:taskType===value}} onPress={()=>changeTask(value)} style={[styles.tab,taskType===value&&styles.tabActive]}><Text style={[styles.tabText,taskType===value&&styles.tabTextActive]}>{label}</Text></Pressable>)}</View>
+    <SectionCard eyebrow={t('oneClearStep').toUpperCase()} title={taskType==='symptom_intake'?t('aiTellSymptoms'):taskType==='record_explanation'?t('aiChooseRecordPrompt'):t('aiAskGeneral')}><Field label={t('aiYourMessage')} value={input} onChangeText={setInput} editable={aiEnabled} multiline numberOfLines={5} textAlignVertical="top" placeholder={t('aiPromptPlaceholder')} />{flagState==='loading'?<ActivityIndicator color={colors.teal}/>:!aiEnabled?<Text accessibilityRole="alert" style={styles.error}>{t(flagState==='error'?'aiUnavailable':'aiFeatureDisabled')}</Text>:message?<Text accessibilityRole="alert" style={styles.error}>{message}</Text>:null}<Button label={t('aiGetGuidance')} disabled={!aiEnabled||profiles.isPending||profiles.isError} loading={busy} onPress={()=>void submit()}/></SectionCard>
     {busy?<ActivityIndicator color={colors.teal}/>:null}{result?<View style={styles.result}><View style={[styles.urgency,result.urgency==='emergency'||result.urgency==='urgent'?styles.urgencyHigh:null]}><AlertTriangle size={20} color={result.urgency==='emergency'||result.urgency==='urgent'?colors.danger:colors.teal}/><View style={styles.flex}><Text style={styles.urgencyLabel}>{t('aiUrgency').toUpperCase()} · {result.urgency.toUpperCase()}</Text><Text style={styles.resultSummary}>{result.summary}</Text></View></View><SectionCard title={t('aiNextSteps')}>{result.guidance.map((item,index)=><Text key={`${item}-${index}`} style={styles.bullet}>• {item}</Text>)}{result.redFlags.map((item,index)=><Text key={`${item}-${index}`} style={styles.redFlag}>• {item}</Text>)}<Text style={styles.disclaimer}>{result.disclaimer}</Text>{result.bookingRecommended?<Button label={t('findDentist')} variant="secondary" onPress={()=>router.push('/patient/discover')}/>:null}</SectionCard></View>:null}
     <View style={styles.route}><CalendarPlus2 size={17} color={colors.teal}/><Text style={styles.routeText}>{t('aiBookingRoute')}</Text></View>
   </Screen>

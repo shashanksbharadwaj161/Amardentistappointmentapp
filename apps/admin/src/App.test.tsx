@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
@@ -21,6 +21,26 @@ Object.defineProperty(window, 'matchMedia', {
 afterEach(cleanup)
 
 describe('admin access shell', () => {
+  it('offers a scoped operational Admin preview without privileged controls', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Preview operational Admin' }))
+    expect(screen.getByRole('button', { name: 'Verification' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Cases' })).toBeEnabled()
+    expect(screen.queryByRole('button', { name: 'AI provider' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Admin invitations' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Invite admin' })).not.toBeInTheDocument()
+  })
+
+  it('exposes independent AI settings destinations in Super Admin preview', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Preview admin console' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Feature controls' }))
+    expect(screen.getByRole('heading', { name: 'Feature flags', level: 1 })).toBeInTheDocument()
+    expect(screen.queryByLabelText('New API key')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Usage limits' }))
+    expect(screen.getByRole('heading', { name: 'Daily usage limits', level: 1 })).toBeInTheDocument()
+  })
+
   it('reveals Super Admin-only actions in the local preview', async () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: 'Preview admin console' }))
@@ -28,7 +48,7 @@ describe('admin access shell', () => {
     expect(screen.getByRole('heading', { name: 'Good morning, Administrator.' })).toBeInTheDocument()
     const inviteButton = screen.getByRole('button', { name: 'Invite admin' })
     expect(inviteButton).toBeInTheDocument()
-    expect(screen.getByText('Database-enforced')).toBeInTheDocument()
+    expect(screen.getByText('Manage dentist verification, patient support, and platform safety.')).toBeInTheDocument()
 
     fireEvent.click(inviteButton)
     expect(await screen.findByRole('dialog', { name: 'Invite an administrator' })).toBeInTheDocument()
@@ -41,6 +61,7 @@ describe('admin access shell', () => {
 
     expect(await screen.findByRole('heading', { name: 'Verification queue' })).toBeInTheDocument()
     expect(await screen.findByRole('region', { name: /Review Dr\./ })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
     expect(await screen.findByText('Preview only: sample decision updated. No real access or audit records changed.')).toBeInTheDocument()
   })

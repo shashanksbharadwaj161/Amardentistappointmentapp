@@ -12,6 +12,8 @@ insert into auth.users(id,aud,role,email,email_confirmed_at,raw_user_meta_data) 
 ('41000000-0000-4000-8000-000000000008','authenticated','authenticated','dentist-two@example.test',now(),'{"full_name":"Dentist Two"}');
 
 insert into public.user_roles(user_id,role) values
+('41000000-0000-4000-8000-000000000002','dentist'),
+('41000000-0000-4000-8000-000000000008','dentist'),
 ('41000000-0000-4000-8000-000000000006','admin'),
 ('41000000-0000-4000-8000-000000000007','super_admin');
 
@@ -98,7 +100,10 @@ reset role;
 set local role authenticated;
 set local "request.jwt.claim.sub"='41000000-0000-4000-8000-000000000002';
 set local "request.jwt.claim.role"='authenticated';
-select lives_ok($$select public.finalize_clinical_encounter(current_setting('test.encounter')::uuid,'All fields reviewed')$$,'verified dentist finalizes encounter');
+select lives_ok($$select public.save_and_finalize_clinical_encounter(
+  id,jsonb_build_object('complaint',chief_complaint,'subjective',subjective_notes,'objective',objective_notes,'assessment',assessment,'plan',plan),
+  chief_complaint,subjective_notes,objective_notes,assessment,plan,'All fields reviewed'
+) from public.clinical_encounters where id=current_setting('test.encounter')::uuid$$,'verified dentist finalizes encounter');
 select is((select status::text||':'||(completed_at is not null)::text from public.appointments where id='44000000-0000-4000-8000-000000000001'),'completed:true','finalizing clinical care completes the checked-in appointment atomically');
 
 reset role;

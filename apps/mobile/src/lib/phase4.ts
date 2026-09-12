@@ -75,6 +75,20 @@ export async function saveEncounter(input: ClinicalEncounterInput): Promise<void
   if (error) throw new Error(error.message)
 }
 
+export type EncounterExpectedNotes = { complaint: string; subjective: string; objective: string; assessment: string; plan: string }
+
+// The snapshot is the freshly read server record, not the merged local draft.
+// Postgres compares it under lock and saves/finalizes atomically, or rejects all changes.
+export async function saveAndFinalizeEncounter(input: ClinicalEncounterInput, expectedNotes: EncounterExpectedNotes): Promise<void> {
+  if (!supabase || previewEnabled) return
+  const { error } = await supabase.rpc('save_and_finalize_clinical_encounter', {
+    target_encounter_id: input.encounterId, expected_notes: { ...expectedNotes },
+    complaint: input.chiefComplaint, subjective: input.subjectiveNotes, objective: input.objectiveNotes,
+    assessment_text: input.assessment, plan_text: input.plan, change_reason: input.changeReason,
+  })
+  if (error) throw new Error(error.code === '40001' || error.message === 'CLINICAL_RECORD_CHANGED' ? 'CLINICAL_RECORD_CHANGED' : 'CLINICAL_FINALIZATION_FAILED')
+}
+
 export async function addDiagnosis(input: ClinicalDiagnosisInput): Promise<string> {
   if (!supabase || previewEnabled) return id()
   const { data, error } = await supabase.rpc('add_clinical_diagnosis', { target_encounter_id: input.encounterId, diagnosis_code: input.code, diagnosis_text: input.diagnosis, diagnosis_notes: input.notes })
@@ -144,6 +158,35 @@ export async function getPatientClinicalRecords(patientProfileId: string): Promi
   return { history, allergies: (allergyResult.data ?? []).map((row) => ({ id: row.id, allergen: row.allergen, reaction: row.reaction, severity: row.severity, active: row.active })), records }
 }
 
+export type PrescribingSafetyContext = { historyRecorded: boolean; allergies: AllergySummary[]; currentMedications: string[] }
+
+// Narrow, RLS-respecting read for the prescribing safety banner: only active allergies and the
+// current-medications list, relying on the same can_read_patient_history policy as the full record
+// view — no broad record fetch and no consent bypass. When the reader is not authorized the policy
+// simply returns no rows (no error), so an empty result is indistinguishable from "genuinely none".
+// Callers must therefore treat empty/denied as "unknown — confirm with the patient", never as
+// "no known allergies". `historyRecorded` only reflects whether a history row is visible, not that
+// allergies were reviewed.
+export async function getPrescribingSafetyContext(patientProfileId: string): Promise<PrescribingSafetyContext> {
+  // Only synthesize demonstration data under the explicit preview/demo flag. If Supabase is merely
+  // missing or misconfigured we must NOT fabricate allergy/medication data — throw so the caller
+  // shows the "could not load — confirm with the patient" state instead of fake or falsely-empty data.
+  if (previewEnabled) return { historyRecorded: true, allergies: [{ id: '84000000-0000-4000-8000-000000000001', allergen: 'Penicillin', reaction: 'Rash', severity: 'moderate', active: true }], currentMedications: ['Medicine A'] }
+  if (!supabase) throw new Error('NOT_CONNECTED')
+  const client = supabase
+  const [historyResult, allergyResult] = await Promise.all([
+    client.from('patient_medical_histories').select('current_medications').eq('patient_profile_id', patientProfileId).maybeSingle(),
+    client.from('patient_allergies').select('*').eq('patient_profile_id', patientProfileId).eq('active', true).order('created_at'),
+  ])
+  const error = historyResult.error ?? allergyResult.error
+  if (error) throw new Error(error.message)
+  return {
+    historyRecorded: historyResult.data !== null,
+    allergies: (allergyResult.data ?? []).map((row) => ({ id: row.id, allergen: row.allergen, reaction: row.reaction, severity: row.severity, active: row.active })),
+    currentMedications: historyResult.data?.current_medications ?? [],
+  }
+}
+
 export async function saveMedicalHistory(input: MedicalHistoryInput): Promise<void> {
   if (!supabase || previewEnabled) return
   const { error } = await supabase.rpc('save_patient_medical_history', { target_patient_profile_id: input.patientProfileId, condition_list: input.conditions, medication_list: input.currentMedications, surgery_list: input.priorSurgeries, pregnancy: input.pregnancyStatus, tobacco: input.tobaccoUse, history_notes: input.notes, change_reason: 'Patient medical history reviewed' })
@@ -157,17 +200,28 @@ export async function addPatientAllergy(input: AllergyInput): Promise<string> {
   return data as string
 }
 
-export async function createAndFinalizeTreatmentPlan(input: TreatmentPlanInput): Promise<string> {
+// `isValid` lets the caller (the clinical editor) abort the chain if the acting editor is no longer
+// valid — role revoked, or account/appointment switched — between the create and finalize steps. It
+// defaults to always-valid so existing callers are unchanged. Validity is checked after the create
+// await and before the finalize mutation, so an old/unauthorized editor cannot finalize a plan.
+export async function createAndFinalizeTreatmentPlan(input: TreatmentPlanInput, isValid: () => boolean = () => true): Promise<string> {
   if (!supabase || previewEnabled) return id()
   const { data, error } = await supabase.rpc('create_treatment_plan', { target_encounter_id: input.encounterId, plan_title: input.title, plan_notes: input.notes, items: input.items })
   if (error) throw new Error(error.message)
   const treatmentPlanId = data as string
+  // The create already committed; we do not fabricate a rollback of it. We only decline to finalize,
+  // leaving an unfinalized draft plan (not patient-visible) when the editor is no longer valid.
+  if (!isValid()) return treatmentPlanId
   const { error: finalizeError } = await supabase.rpc('finalize_treatment_plan', { target_treatment_plan_id: treatmentPlanId, change_reason: 'Treatment plan reviewed and finalized' })
   if (finalizeError) throw new Error(finalizeError.message)
   return treatmentPlanId
 }
 
-export async function uploadClinicalMedia(encounterId: string, kind: 'photograph' | 'xray', asset: { uri: string; name: string; mimeType?: string; size?: number }, caption: string): Promise<string> {
+// `isValid` lets the caller abort if the acting editor becomes invalid (role revoked, account/
+// appointment switched) mid-chain. It defaults to always-valid so existing callers are unchanged.
+// Validity is checked after the prepare waits (before the storage write) and again before the
+// register mutation, so clinical media is never stored or registered for an old/unauthorized editor.
+export async function uploadClinicalMedia(encounterId: string, kind: 'photograph' | 'xray', asset: { uri: string; name: string; mimeType?: string; size?: number }, caption: string, isValid: () => boolean = () => true): Promise<string> {
   if (!supabase || previewEnabled) return id()
   const { data: userResult, error: userError } = await supabase.auth.getUser()
   if (userError || !userResult.user) throw new Error(userError?.message ?? 'AUTH_REQUIRED')
@@ -177,8 +231,18 @@ export async function uploadClinicalMedia(encounterId: string, kind: 'photograph
   if (!response.ok) throw new Error('CLINICAL_MEDIA_READ_FAILED')
   const body = await response.blob()
   const contentType = asset.mimeType ?? body.type ?? 'application/octet-stream'
+  // Abort before writing anything to storage if the editor is no longer valid: nothing has been
+  // written yet, so no cleanup is required.
+  if (!isValid()) throw new Error('CLINICAL_MEDIA_ABORTED')
   const { error: uploadError } = await supabase.storage.from('clinical-media').upload(objectPath, body, { contentType, upsert: false })
   if (uploadError) throw new Error(uploadError.message)
+  // If access was lost during the storage upload, do not register the media row. Attempt best-effort
+  // removal of the just-uploaded object; storage removal can itself fail, so an orphaned object may
+  // remain — a partial-upload cleanup concern that server-side storage lifecycle rules must also cover.
+  if (!isValid()) {
+    await supabase.storage.from('clinical-media').remove([objectPath])
+    throw new Error('CLINICAL_MEDIA_ABORTED')
+  }
   const { data, error } = await supabase.rpc('register_clinical_media', { target_encounter_id: encounterId, media_kind: kind, object_path: objectPath, original_filename: asset.name, mime_type: contentType, content_size: asset.size ?? body.size, media_caption: caption })
   if (error) {
     await supabase.storage.from('clinical-media').remove([objectPath])

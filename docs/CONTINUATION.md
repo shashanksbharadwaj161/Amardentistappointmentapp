@@ -1,6 +1,14 @@
 # Amar Dentist continuation guide
 
-Updated: 2026-09-10
+Updated: 2026-09-12
+
+## Current priority override — dentist/patient and Admin operations
+
+**Read `docs/AI_PROVIDER_DELIVERY_2026-09-12.md` first, then `docs/ADMIN_OPERATIONS_DELIVERY_2026-09-10.md`.** The user now prioritizes individual dentists, patients, Super Admin controls, and operational Admin workflows. Clinic business management, inventory, labs, and business finance are deferred to the end; preserve existing internal clinic relationships until a separate migration/removal decision. The older complete-platform plan below remains historical context, not permission to prioritize clinic expansion now.
+
+Latest source adds secure dual-provider/model configuration and connection testing. Migration 019 is deployed with exact source verification and all 36 scoped hosted behavior assertions passed in a rollback-only run. Fresh local results: 82 Admin, 75 mobile, 34 shared-domain, 114 Edge tests, plus 13 browser checks (one intentional skip). The full database suite, migration 018 behavioral tests, real provider/role/device acceptance remain open. Historical results below are superseded where the latest delivery documents give newer evidence.
+
+Fresh September 12 inspection: both designated owner accounts exist, neither is email verified, and neither holds Super Admin. Complete verified onboarding before real key entry. Earlier Claude clinical work was integrated by `7f55d9a`; NEW allergy/current-medication context is pushed at `6fb30c1` on `claude/prescribing-safety-context`, fetched but NOT integrated or independently tested. See the latest delivery document before merging or claiming client readiness. No defensible current whole-app completion percentage is established.
 
 **Latest increments: `docs/ADMIN_ACCESS_DELIVERY_2026-09-10.md` and `docs/SUPPORT_DELIVERY_2026-09-10.md`. Read these first, then `docs/CHECKPOINT_2026-09-10.md` for the preceding navigation/deployment checkpoint.**
 
