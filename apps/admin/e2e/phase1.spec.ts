@@ -63,19 +63,29 @@ test('Super Admin configures revenue controls without provider secrets', async (
   await page.screenshot({ path: `${verificationDir}admin-finance-${testInfo.project.name}.png`, fullPage: true })
 })
 
-test('operational Admin preview keeps platform-only destinations disabled', async ({ page }, testInfo) => {
+test('operational Admin preview omits platform-only destinations and retains operational routes', async ({ page }, testInfo) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Preview operational Admin' }).click()
   await expect(page.getByRole('button', { name: 'Invite admin', exact: true })).toHaveCount(0)
   if (testInfo.project.name === 'mobile-chromium') await page.getByRole('button', { name: 'Open navigation' }).click()
   const navigation = page.getByRole('navigation', { name: 'Primary navigation' })
-  await expect(navigation.getByRole('button', { name: 'Verification', exact: true })).toBeEnabled()
-  await expect(navigation.getByRole('button', { name: 'Cases', exact: true })).toBeEnabled()
-  for (const name of ['Users', 'Audit trail', 'Admin invitations', 'AI provider', 'Feature controls', 'Usage limits', 'AI usage and cost', 'Notification delivery', 'Configuration']) {
-    await expect(navigation.getByRole('button', { name, exact: true })).toBeDisabled()
+  await expect(page.getByRole('navigation', { name: 'Primary navigation', includeHidden: true })).toHaveCount(1)
+  await expect(navigation.getByRole('button', { includeHidden: true })).toHaveCount(3)
+  for (const name of ['Overview', 'Verification', 'Cases']) {
+    await expect(navigation.getByRole('button', { name, exact: true })).toHaveCount(1)
+    await expect(navigation.getByRole('button', { name, exact: true })).toBeEnabled()
   }
+  for (const name of ['Users', 'Audit trail', 'Admin invitations', 'AI provider', 'Feature controls', 'Usage limits', 'AI usage and cost', 'Notification delivery', 'Configuration']) {
+    await expect(page.getByRole('button', { name, exact: true, includeHidden: true })).toHaveCount(0)
+  }
+  await navigation.getByRole('button', { name: 'Verification', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Verification queue' })).toBeVisible()
+  if (testInfo.project.name === 'mobile-chromium') await page.getByRole('button', { name: 'Open navigation' }).click()
   await navigation.getByRole('button', { name: 'Cases', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Cases and moderation' })).toBeVisible()
+  if (testInfo.project.name === 'mobile-chromium') await page.getByRole('button', { name: 'Open navigation' }).click()
+  await navigation.getByRole('button', { name: 'Overview', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Good morning, Administrator.' })).toBeVisible()
 })
 
 test('Super Admin AI destinations reject invalid quotas and never accept preview credentials', async ({ page }, testInfo) => {
