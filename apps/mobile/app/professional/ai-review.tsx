@@ -4,7 +4,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Redirect, Stack, useLocalSearchParams } from 'expo-router'
 import { BrainCircuit, Check, FlaskConical, ShieldAlert } from 'lucide-react-native'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Pressable, StyleSheet, Text, View } from 'react-native'
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
 import { Button } from '../../src/components/Button'
 import { Field } from '../../src/components/Field'
 import { Screen } from '../../src/components/Screen'
@@ -27,59 +27,75 @@ export default function AiReviewScreen(){
 }
 
 function AiReviewEditor(){
-  const{appointmentId}=useLocalSearchParams<{appointmentId:string}>();const{profile,loading}=useAuth();const{t,locale}=useLocale();const[taskType,setTaskType]=useState<DentistTask>('clinical_note');const[input,setInput]=useState('');const[result,setResult]=useState<AiTaskResult|null>(null);const[values,setValues]=useState<Record<string,string>>({});const[reviewed,setReviewed]=useState<Record<string,boolean>>({});const[busy,setBusy]=useState(false);const[message,setMessage]=useState<string|null>(null);const[aiEnabled,setAiEnabled]=useState(true);const[xrayEnabled,setXrayEnabled]=useState(false)
+  const{appointmentId}=useLocalSearchParams<{appointmentId:string}>();const{profile,loading}=useAuth();const{t,locale}=useLocale();const[taskType,setTaskType]=useState<DentistTask>('clinical_note');const[input,setInput]=useState('');const[result,setResult]=useState<AiTaskResult|null>(null);const[values,setValues]=useState<Record<string,string>>({});const[reviewed,setReviewed]=useState<Record<string,boolean>>({});const[busy,setBusy]=useState(false);const[message,setMessage]=useState<string|null>(null);const[aiEnabled,setAiEnabled]=useState(false);const[xrayEnabled,setXrayEnabled]=useState(false)
   const queryClient=useQueryClient()
   const mounted=useRef(true)
-  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[])
+  const generation=useRef(0);const pendingOperation=useRef(false);const currentTask=useRef<DentistTask>('clinical_note')
+  const features=useRef({dentist:false,xray:false})
+  const[flagState,setFlagState]=useState<'loading'|'ready'|'error'>('loading')
+  const permitted=()=>features.current.dentist&&(currentTask.current!=='xray_observation'||features.current.xray)
+  const discard=()=>{++generation.current;pendingOperation.current=false;setBusy(false);setResult(null);setValues({});setReviewed({});setMessage(null)}
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;++generation.current}},[])
   const complete=useMemo(()=>Boolean(result)&&result!.requiredFields.every((field)=>reviewed[field]),[result,reviewed])
-  useEffect(()=>{setResult(null);setValues({});setReviewed({});setMessage(null)},[taskType])
+  const changeTask=(next:DentistTask)=>{if(next===currentTask.current)return;currentTask.current=next;discard();setTaskType(next)}
   useEffect(()=>{
     let cancelled=false;let pending=false
     const refresh=async()=>{
       if(pending)return;pending=true
-      try{const flags=await getAiFeatureFlags();if(!cancelled){setAiEnabled(flags.dentistAi);setXrayEnabled(flags.dentistAi&&flags.experimentalXrayAi)}}
-      catch{if(!cancelled){setAiEnabled(false);setXrayEnabled(false)}}finally{pending=false}
+      try{const flags=await getAiFeatureFlags();if(!cancelled){
+        features.current={dentist:flags.dentistAi,xray:flags.dentistAi&&flags.experimentalXrayAi}
+        setAiEnabled(features.current.dentist);setXrayEnabled(features.current.xray);setFlagState('ready')
+        if(!permitted())discard()
+      }}
+      catch{if(!cancelled){features.current={dentist:false,xray:false};setAiEnabled(false);setXrayEnabled(false);setFlagState('error');discard()}}finally{pending=false}
     }
     void refresh();const stop=subscribeToAccessRefresh(()=>{void refresh()})
     return()=>{cancelled=true;stop()}
   },[profile?.id])
   if(!loading&&!profile)return<Redirect href="/"/>;if(!profile)return null
+  const canUseTask=aiEnabled&&(taskType!=='xray_observation'||xrayEnabled)
   const generate=async()=>{
-    if(!mounted.current)return
-    if(!aiEnabled)return setMessage(t('aiFeatureDisabled'))
+    if(!mounted.current||pendingOperation.current)return
+    if(!permitted())return setMessage(t('aiFeatureDisabled'))
+    const ticket=++generation.current;const task=currentTask.current
+    const current=()=>mounted.current&&ticket===generation.current&&task===currentTask.current&&permitted()
+    pendingOperation.current=true
     setBusy(true);setMessage(null)
     try{
       if(!appointmentId)throw new Error('ENCOUNTER_REQUIRED')
       const record=await openClinicalEncounter(appointmentId)
-      if(!mounted.current)return
+      if(!current())return
       const mediaTask=!['clinical_note','prescription'].includes(taskType)
       const media=mediaTask?record.media.find((item)=>taskType==='xray_observation'?item.kind==='xray':item.kind==='photograph'):null
       const parsed=aiTaskRequestSchema.safeParse({taskType,encounterId:record.encounter.id,patientProfileId:null,mediaId:media?.id??null,input,locale})
       if(!parsed.success)return setMessage(mediaTask&&!media?t('aiMediaRequired'):t('aiDescribeMore'))
       const next=await runAiTask(parsed.data)
-      if(!mounted.current)return
+      if(!current())return
       setResult(next);setValues(Object.fromEntries(Object.entries(next.output).map(([key,value])=>[key,typeof value==='string'?value:JSON.stringify(value,null,2)])));setReviewed({})
-    }catch(error){if(mounted.current)setMessage(error instanceof Error&&error.message==='AI_PROVIDER_NOT_CONFIGURED'?t('aiNotConfigured'):error instanceof Error&&error.message==='AI_FEATURE_DISABLED'?t('aiFeatureDisabled'):t('aiUnavailable'))}
-    finally{if(mounted.current)setBusy(false)}
+    }catch(error){if(current())setMessage(error instanceof Error&&error.message==='AI_PROVIDER_NOT_CONFIGURED'?t('aiNotConfigured'):error instanceof Error&&error.message==='AI_FEATURE_DISABLED'?t('aiFeatureDisabled'):t('aiUnavailable'))}
+    finally{if(current()){pendingOperation.current=false;setBusy(false)}}
   }
   const accept=async()=>{
-    if(!mounted.current||!result||!complete)return
+    if(!mounted.current||pendingOperation.current||!permitted()||!result||!complete)return
+    const ticket=++generation.current;const task=currentTask.current
+    const current=()=>mounted.current&&ticket===generation.current&&task===currentTask.current&&permitted()
+    pendingOperation.current=true
     setBusy(true);setMessage(null)
     try{
       const finalOutput=Object.fromEntries(Object.entries(values).map(([key,value])=>{try{return[key,JSON.parse(value)]}catch{return[key,value]}}))
       const parsed=aiReviewSchema.parse({taskId:result.taskId,reviewedFields:reviewed,finalOutput,changeSummary:'Every required field reviewed by the treating dentist'})
       await reviewAiTask(parsed)
-      if(!mounted.current)return
+      if(!current())return
       if(appointmentId)await queryClient.invalidateQueries({queryKey:['clinical-encounter',appointmentId]})
-      if(!mounted.current)return
+      if(!current())return
       setMessage(t('aiDraftAccepted'));setResult(null)
-    }catch{if(mounted.current)setMessage(t('aiUnavailable'))}finally{if(mounted.current)setBusy(false)}
+    }catch{if(current())setMessage(t('aiUnavailable'))}finally{if(current()){pendingOperation.current=false;setBusy(false)}}
   }
   const tasks:[DentistTask,string][]=[['clinical_note',t('aiClinicalNote')],['prescription',t('aiPrescription')],['photo_quality',t('aiPhotoQuality')],['oral_photo_observation',t('aiOralPhoto')],...(xrayEnabled?([['xray_observation',t('aiXrayExperimental')]] as [DentistTask,string][]):[])]
   return<Screen maxWidth={900} style={styles.screen}><Stack.Screen options={{title:t('aiReviewWorkspace'),headerBackTitle:t('back')}}/><View style={styles.hero}><View style={styles.icon}><BrainCircuit size={28} color={colors.mint}/></View><Text style={styles.kicker}>{t('aiDentistEyebrow')}</Text><Text style={styles.title}>{t('aiReviewWorkspace')}</Text><Text style={styles.subtitle}>{t('aiDentistBody')}</Text></View><View style={styles.warning}><ShieldAlert size={19} color={colors.teal}/><Text style={styles.warningText}>{t('aiDentistSafety')}</Text></View>
-    <View style={styles.tabs}>{tasks.map(([value,label])=><Pressable key={value} onPress={()=>setTaskType(value)} accessibilityRole="tab" accessibilityState={{selected:taskType===value}} style={[styles.tab,taskType===value&&styles.tabActive]}><Text style={[styles.tabText,taskType===value&&styles.tabTextActive]}>{label}</Text></Pressable>)}</View>
+    <View style={styles.tabs}>{tasks.map(([value,label])=><Pressable key={value} onPress={()=>changeTask(value)} accessibilityRole="tab" accessibilityState={{selected:taskType===value}} style={[styles.tab,taskType===value&&styles.tabActive]}><Text style={[styles.tabText,taskType===value&&styles.tabTextActive]}>{label}</Text></Pressable>)}</View>
     {taskType==='xray_observation'?<View style={styles.experimental}><FlaskConical size={18} color={colors.danger}/><Text style={styles.experimentalText}>{t('aiXrayWarning')}</Text></View>:null}
-    <SectionCard eyebrow={t('aiFactsOnly').toUpperCase()} title={t('aiDraftRequest')}><Field label={t('aiClinicalContext')} value={input} onChangeText={setInput} editable={aiEnabled} multiline numberOfLines={5} textAlignVertical="top" placeholder={t('aiClinicalPromptPlaceholder')}/>{!aiEnabled?<Text accessibilityRole="alert" style={styles.message}>{t('aiFeatureDisabled')}</Text>:message?<Text accessibilityRole="alert" style={styles.message}>{message}</Text>:null}<Button label={t('aiGenerateDraft')} disabled={!aiEnabled} loading={busy} onPress={()=>void generate()}/></SectionCard>
+    <SectionCard eyebrow={t('aiFactsOnly').toUpperCase()} title={t('aiDraftRequest')}><Field label={t('aiClinicalContext')} value={input} onChangeText={setInput} editable={canUseTask} multiline numberOfLines={5} textAlignVertical="top" placeholder={t('aiClinicalPromptPlaceholder')}/>{flagState==='loading'?<ActivityIndicator color={colors.teal}/>:!canUseTask?<Text accessibilityRole="alert" style={styles.message}>{t(flagState==='error'?'aiUnavailable':'aiFeatureDisabled')}</Text>:message?<Text accessibilityRole="alert" style={styles.message}>{message}</Text>:null}<Button label={t('aiGenerateDraft')} disabled={!canUseTask} loading={busy} onPress={()=>void generate()}/></SectionCard>
     {result?<SectionCard eyebrow={t('aiRequiresReview').toUpperCase()} title={t('aiReviewEveryField')}>{result.requiredFields.map((field)=><View key={field} style={styles.fieldReview}><Field label={field.replace(/([A-Z])/g,' $1')} value={values[field]??''} onChangeText={(value)=>{setValues((current)=>({...current,[field]:value}));setReviewed((current)=>({...current,[field]:false}))}} multiline numberOfLines={field==='items'?7:4} textAlignVertical="top"/><Pressable accessibilityRole="checkbox" accessibilityState={{checked:Boolean(reviewed[field])}} onPress={()=>setReviewed((current)=>({...current,[field]:!current[field]}))} style={[styles.check,reviewed[field]&&styles.checkActive]}>{reviewed[field]?<Check size={18} color={colors.paper}/>:null}<Text style={[styles.checkText,reviewed[field]&&styles.checkTextActive]}>{reviewed[field]?t('aiFieldReviewed'):t('aiMarkReviewed')}</Text></Pressable></View>)}<Button label={t('aiAcceptReviewed')} disabled={!complete} loading={busy} onPress={()=>void accept()}/></SectionCard>:null}
   </Screen>
 }
