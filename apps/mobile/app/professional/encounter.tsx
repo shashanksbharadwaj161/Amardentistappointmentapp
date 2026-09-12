@@ -2,14 +2,14 @@ import { clinicalDiagnosisSchema, clinicalEncounterSchema, prescriptionDraftSche
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as DocumentPicker from 'expo-document-picker'
 import { Redirect, router, Stack, useLocalSearchParams } from 'expo-router'
-import { BrainCircuit, CheckCircle2, CircleDot, ClipboardPenLine, ImagePlus, Pill, Stethoscope } from 'lucide-react-native'
+import { AlertTriangle, BrainCircuit, CheckCircle2, CircleDot, ClipboardPenLine, ImagePlus, Pill, Stethoscope } from 'lucide-react-native'
 import { useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, Linking, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { Button } from '../../src/components/Button'
 import { Field } from '../../src/components/Field'
 import { Screen } from '../../src/components/Screen'
 import { SectionCard } from '../../src/components/SectionCard'
-import { addDiagnosis, createAndFinalizeTreatmentPlan, finalizePrescription, getClinicalMediaDownloadUrl, openClinicalEncounter, saveAndFinalizeEncounter, saveEncounter, savePrescription, saveToothObservation, uploadClinicalMedia } from '../../src/lib/phase4'
+import { addDiagnosis, createAndFinalizeTreatmentPlan, finalizePrescription, getClinicalMediaDownloadUrl, getPrescribingSafetyContext, openClinicalEncounter, saveAndFinalizeEncounter, saveEncounter, savePrescription, saveToothObservation, uploadClinicalMedia } from '../../src/lib/phase4'
 import { useAuth } from '../../src/providers/AuthProvider'
 import { useLocale } from '../../src/providers/LocaleProvider'
 import { colors, radius, spacing } from '../../src/theme'
@@ -56,6 +56,10 @@ export default function ClinicalEncounterScreen() {
   const { width } = useWindowDimensions()
   const queryClient = useQueryClient()
   const record = useQuery({ queryKey: ['clinical-encounter', appointmentId], queryFn: () => openClinicalEncounter(appointmentId!), enabled: Boolean(profile && appointmentId) })
+  const safetyPatientProfileId = record.data?.encounter.patientProfileId
+  // Narrow allergy/medication context for the prescribing banner. RLS-gated; an empty or denied
+  // result must be shown as "unknown — confirm", never as "no known allergies" (see the band below).
+  const safety = useQuery({ queryKey: ['prescribing-safety', safetyPatientProfileId], queryFn: () => getPrescribingSafetyContext(safetyPatientProfileId!), enabled: Boolean(profile && safetyPatientProfileId) })
   const [notes, setNotes] = useState<EncounterNoteFields>(emptyNotes)
   const notesRef = useRef<EncounterNoteFields>(notes)
   notesRef.current = notes
@@ -265,6 +269,22 @@ export default function ClinicalEncounterScreen() {
         </SectionCard>
       </View>
     </View>
+    {safetyPatientProfileId ? <View accessibilityRole="alert" style={[styles.rxBand, (safety.data?.allergies.length ?? 0) > 0 && styles.rxBandAlert]}>
+      <View style={styles.rxHeading}><AlertTriangle size={18} color={(safety.data?.allergies.length ?? 0) > 0 ? '#B83A3A' : colors.warning} /><Text style={styles.rxTitle}>{t('rxSafetyTitle')}</Text></View>
+      {safety.isLoading ? <Text style={styles.rxValue}>{t('rxSafetyChecking')}</Text>
+        : safety.isError ? <Text style={styles.rxValue}>{t('rxSafetyUnavailable')}</Text>
+        : <>
+          <Text style={styles.rxLabel}>{t('rxSafetyAllergiesLabel')}</Text>
+          {safety.data && safety.data.allergies.length > 0
+            ? safety.data.allergies.map((a) => <Text key={a.id} style={styles.rxValue}>{a.allergen}{a.reaction ? ` · ${a.reaction}` : ''}{a.severity && a.severity !== 'unknown' ? ` · ${a.severity}` : ''}</Text>)
+            : <Text style={styles.rxValue}>{t('rxSafetyNoAllergiesOnFile')}</Text>}
+          <Text style={styles.rxLabel}>{t('rxSafetyMedicationsLabel')}</Text>
+          {safety.data && safety.data.currentMedications.length > 0
+            ? safety.data.currentMedications.map((m, index) => <Text key={index} style={styles.rxValue}>{m}</Text>)
+            : <Text style={styles.rxValue}>{t('rxSafetyNoMedicationsOnFile')}</Text>}
+        </>}
+      <Text style={styles.rxConfirm}>{t('rxSafetyConfirm')}</Text>
+    </View> : null}
     <SectionCard eyebrow={t('prescription').toUpperCase()} title={t('reviewEachMedicine')}>
       {record.data.prescriptions.map((prescription) => {
         const finalized = isPrescriptionFinalized(prescription)
@@ -295,5 +315,5 @@ export default function ClinicalEncounterScreen() {
 
 const styles = StyleSheet.create({
   arch:{gap:spacing.sm,marginVertical:spacing.sm},tooth:{minWidth:44,minHeight:44,alignItems:'center',justifyContent:'center',borderWidth:1,borderColor:colors.line,borderRadius:radius.md,backgroundColor:colors.paper},toothSelected:{backgroundColor:colors.ink},toothText:{color:colors.ink,fontSize:15,fontWeight:'700'},toothTextSelected:{color:colors.paper},
-  screen: { paddingTop: spacing.xl, gap: spacing.xl }, heading: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }, headingCopy: { flex: 1, gap: 5 }, kicker: { color: colors.teal, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' }, title: { color: colors.inkDeep, fontSize: 31, fontWeight: '800', letterSpacing: -0.9 }, subtitle: { color: colors.muted, fontSize: 13, lineHeight: 20 }, notice: { color: colors.teal, backgroundColor: colors.mintSoft, padding: spacing.md, borderRadius: radius.md }, conflict: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.md, backgroundColor: '#FDECEC', borderWidth: 1, borderColor: '#B83A3A' }, conflictTitle: { color: '#B83A3A', fontSize: 15, fontWeight: '800' }, conflictBody: { color: colors.text, fontSize: 12, lineHeight: 18 }, conflictRow: { gap: 4, paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line }, conflictField: { color: colors.inkDeep, fontSize: 13, fontWeight: '800' }, conflictLabel: { color: colors.muted, fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 }, conflictValue: { color: colors.text, fontSize: 12, lineHeight: 18 }, conflictActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingTop: spacing.xs }, aiCard:{flexDirection:'row',alignItems:'flex-start',gap:spacing.md,padding:spacing.lg,borderRadius:radius.lg,backgroundColor:colors.inkDeep},aiTitle:{color:colors.paper,fontSize:16,fontWeight:'800'},aiBody:{color:'#B8C8D3',fontSize:12,lineHeight:18,marginTop:4}, columns: { gap: spacing.xl }, columnsWide: { flexDirection: 'row', alignItems: 'flex-start' }, column: { flex: 1, minWidth: 0, gap: spacing.xl }, rowFields: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }, codeField: { width: 110 }, flex: { flex: 1, minWidth: 160 }, item: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line }, itemText: { flex: 1, color: colors.text, fontSize: 12, lineHeight: 18 }, prescriptionGroup: { gap: spacing.sm, paddingBottom: spacing.md, marginBottom: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line }, draftNote: { color: colors.muted, fontSize: 12, lineHeight: 18 }, medicineGrid: { gap: spacing.sm }, mediaIntro: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, mediaActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, finalBadge: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, finalText: { color: colors.success, fontWeight: '800' }, finalize: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, padding: spacing.xl, borderRadius: radius.lg, backgroundColor: colors.inkDeep }, finalizeTitle: { color: colors.paper, fontSize: 18, fontWeight: '800' }, finalizeBody: { color: '#B8C8D3', fontSize: 12, lineHeight: 18, marginTop: 4 },
+  screen: { paddingTop: spacing.xl, gap: spacing.xl }, heading: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }, headingCopy: { flex: 1, gap: 5 }, kicker: { color: colors.teal, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' }, title: { color: colors.inkDeep, fontSize: 31, fontWeight: '800', letterSpacing: -0.9 }, subtitle: { color: colors.muted, fontSize: 13, lineHeight: 20 }, notice: { color: colors.teal, backgroundColor: colors.mintSoft, padding: spacing.md, borderRadius: radius.md }, conflict: { gap: spacing.sm, padding: spacing.lg, borderRadius: radius.md, backgroundColor: '#FDECEC', borderWidth: 1, borderColor: '#B83A3A' }, conflictTitle: { color: '#B83A3A', fontSize: 15, fontWeight: '800' }, conflictBody: { color: colors.text, fontSize: 12, lineHeight: 18 }, conflictRow: { gap: 4, paddingTop: spacing.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.line }, conflictField: { color: colors.inkDeep, fontSize: 13, fontWeight: '800' }, conflictLabel: { color: colors.muted, fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6 }, conflictValue: { color: colors.text, fontSize: 12, lineHeight: 18 }, conflictActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, paddingTop: spacing.xs }, rxBand: { gap: 4, padding: spacing.lg, borderRadius: radius.md, backgroundColor: '#FFF7E6', borderWidth: 1, borderColor: colors.warning }, rxBandAlert: { backgroundColor: '#FDECEC', borderColor: '#B83A3A' }, rxHeading: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, rxTitle: { color: colors.inkDeep, fontSize: 14, fontWeight: '800' }, rxLabel: { color: colors.muted, fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.6, marginTop: spacing.xs }, rxValue: { color: colors.text, fontSize: 12, lineHeight: 18 }, rxConfirm: { color: colors.inkDeep, fontSize: 12, lineHeight: 18, fontWeight: '700', marginTop: spacing.sm }, aiCard:{flexDirection:'row',alignItems:'flex-start',gap:spacing.md,padding:spacing.lg,borderRadius:radius.lg,backgroundColor:colors.inkDeep},aiTitle:{color:colors.paper,fontSize:16,fontWeight:'800'},aiBody:{color:'#B8C8D3',fontSize:12,lineHeight:18,marginTop:4}, columns: { gap: spacing.xl }, columnsWide: { flexDirection: 'row', alignItems: 'flex-start' }, column: { flex: 1, minWidth: 0, gap: spacing.xl }, rowFields: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md }, codeField: { width: 110 }, flex: { flex: 1, minWidth: 160 }, item: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line }, itemText: { flex: 1, color: colors.text, fontSize: 12, lineHeight: 18 }, prescriptionGroup: { gap: spacing.sm, paddingBottom: spacing.md, marginBottom: spacing.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.line }, draftNote: { color: colors.muted, fontSize: 12, lineHeight: 18 }, medicineGrid: { gap: spacing.sm }, mediaIntro: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }, mediaActions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm }, finalBadge: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm }, finalText: { color: colors.success, fontWeight: '800' }, finalize: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md, padding: spacing.xl, borderRadius: radius.lg, backgroundColor: colors.inkDeep }, finalizeTitle: { color: colors.paper, fontSize: 18, fontWeight: '800' }, finalizeBody: { color: '#B8C8D3', fontSize: 12, lineHeight: 18, marginTop: 4 },
 })
