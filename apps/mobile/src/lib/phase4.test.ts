@@ -26,11 +26,24 @@ describe('phase 4 offline-safe clinical previews', () => {
     await expect(getPrescriptionDownloadUrl('85000000-0000-4000-8000-000000000001')).resolves.toBeNull()
   })
 
-  it('returns a narrow allergy/medication safety context in preview mode', async () => {
-    const context = await getPrescribingSafetyContext(patientId)
-    expect(context.allergies.map((a) => a.allergen)).toContain('Penicillin')
-    expect(context.currentMedications).toContain('Medicine A')
-    expect(context.historyRecorded).toBe(true)
+  it('never fabricates allergy or medication data when Supabase is unavailable and preview is off', async () => {
+    // Preview is not enabled here (no EXPO_PUBLIC_DEMO_MODE) and supabase is null, so the safety
+    // read must fail loudly rather than return fake "Penicillin" data or a false empty result.
+    await expect(getPrescribingSafetyContext(patientId)).rejects.toThrow('NOT_CONNECTED')
+  })
+})
+
+describe('prescribing-safety copy and severity labels', () => {
+  it('provides real bilingual severity labels so allergy severity is never shown as a raw enum', () => {
+    for (const key of ['unknown', 'mild', 'moderate', 'severe'] as const) {
+      expect(typeof messages.en[key]).toBe('string')
+      expect(messages.en[key].length).toBeGreaterThan(0)
+      expect(typeof messages.bn[key]).toBe('string')
+      expect(messages.bn[key].length).toBeGreaterThan(0)
+      expect(messages.bn[key]).not.toBe(key)
+    }
+    expect(messages.en.moderate).toBe('Moderate')
+    expect(messages.bn.moderate).toBe('মাঝারি')
   })
 })
 

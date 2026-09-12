@@ -168,7 +168,11 @@ export type PrescribingSafetyContext = { historyRecorded: boolean; allergies: Al
 // "no known allergies". `historyRecorded` only reflects whether a history row is visible, not that
 // allergies were reviewed.
 export async function getPrescribingSafetyContext(patientProfileId: string): Promise<PrescribingSafetyContext> {
-  if (!supabase || previewEnabled) return { historyRecorded: true, allergies: [{ id: '84000000-0000-4000-8000-000000000001', allergen: 'Penicillin', reaction: 'Rash', severity: 'moderate', active: true }], currentMedications: ['Medicine A'] }
+  // Only synthesize demonstration data under the explicit preview/demo flag. If Supabase is merely
+  // missing or misconfigured we must NOT fabricate allergy/medication data — throw so the caller
+  // shows the "could not load — confirm with the patient" state instead of fake or falsely-empty data.
+  if (previewEnabled) return { historyRecorded: true, allergies: [{ id: '84000000-0000-4000-8000-000000000001', allergen: 'Penicillin', reaction: 'Rash', severity: 'moderate', active: true }], currentMedications: ['Medicine A'] }
+  if (!supabase) throw new Error('NOT_CONNECTED')
   const client = supabase
   const [historyResult, allergyResult] = await Promise.all([
     client.from('patient_medical_histories').select('current_medications').eq('patient_profile_id', patientProfileId).maybeSingle(),
