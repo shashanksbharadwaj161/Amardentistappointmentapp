@@ -5,11 +5,13 @@ import { getAiFeatureFlags, reviewAiTask, runAiTask } from '../lib/phase6'
 import { openClinicalEncounter } from '../lib/phase4'
 
 let mockRefreshAccess: () => void
+let mockProfile = { id: '20000000-0000-4000-8000-000000000001', roles: ['dentist'] }
+let mockAppointmentId = 'appt1'
 jest.mock('../lib/access-refresh', () => ({ subscribeToAccessRefresh: (refresh: () => void) => { mockRefreshAccess = refresh; return jest.fn() } }))
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }))
-jest.mock('expo-router', () => ({ Redirect: () => null, Stack: { Screen: () => null }, useLocalSearchParams: () => ({ appointmentId: 'appt1' }) }))
-jest.mock('../providers/AuthProvider', () => ({ useAuth: () => ({ profile: { id: '20000000-0000-4000-8000-000000000001' }, loading: false }) }))
+jest.mock('expo-router', () => ({ Redirect: () => null, Stack: { Screen: () => null }, useLocalSearchParams: () => ({ appointmentId: mockAppointmentId }) }))
+jest.mock('../providers/AuthProvider', () => ({ useAuth: () => ({ profile: mockProfile, loading: false }) }))
 jest.mock('../providers/LocaleProvider', () => ({ useLocale: () => ({ t: (key: string) => key, locale: 'en' }) }))
 jest.mock('../components/Screen', () => ({ Screen: ({ children }: { children: React.ReactNode }) => children }))
 jest.mock('../lib/phase4', () => ({ openClinicalEncounter: jest.fn() }))
@@ -17,6 +19,7 @@ jest.mock('../lib/phase6', () => ({ getAiFeatureFlags: jest.fn(), runAiTask: jes
 
 beforeEach(() => {
   jest.clearAllMocks()
+  mockProfile = { id: '20000000-0000-4000-8000-000000000001', roles: ['dentist'] }; mockAppointmentId = 'appt1'
   jest.mocked(getAiFeatureFlags).mockResolvedValue({ dentistAi: true, patientAi: true, experimentalXrayAi: false })
   jest.mocked(openClinicalEncounter).mockResolvedValue({ encounter: { id: '11111111-1111-4111-8111-111111111111', appointmentId: 'appt1' }, media: [] } as never)
   jest.mocked(runAiTask).mockResolvedValue({ taskId: '22222222-2222-4222-8222-222222222222', status: 'awaiting_review', requiredFields: ['subjective', 'objective', 'assessment', 'plan'], output: { subjective: 's', objective: 'o', assessment: 'a', plan: 'p' } })
@@ -70,4 +73,56 @@ it('does not accept or invalidate until every required field is reviewed', async
 
   expect(reviewAiTask).not.toHaveBeenCalled()
   expect(invalidate).not.toHaveBeenCalled()
+})
+
+it('unmounts visible draft fields when the dentist role is revoked', async () => {
+  const client = new QueryClient()
+  const tree = () => <QueryClientProvider client={client}><AiReviewScreen /></QueryClientProvider>
+  await act(async () => { render(tree()) })
+  await fireEvent.changeText(screen.getByLabelText('aiClinicalContext'), 'Private clinical context')
+  await fireEvent.press(screen.getByRole('button', { name: 'aiGenerateDraft' }))
+  await waitFor(() => expect(screen.getAllByRole('checkbox')).toHaveLength(4))
+  mockProfile = { ...mockProfile, roles: ['patient'] }
+  await act(async () => { await screen.rerender(tree()) })
+  expect(screen.queryByLabelText('aiClinicalContext')).toBeNull()
+  expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
+  mockProfile = { ...mockProfile, roles: ['dentist'] }
+  await act(async () => { await screen.rerender(tree()) })
+  expect(screen.queryByDisplayValue('Private clinical context')).toBeNull()
+  expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
+})
+
+it('does not restore a late AI result after role loss and renewed access', async () => {
+  let finish!: (result: unknown) => void
+  const output = { taskId: 'late', status: 'awaiting_review', requiredFields: ['subjective'], output: { subjective: 'Private late draft' } }
+  jest.mocked(runAiTask).mockImplementation(() => new Promise(resolve => { finish = resolve as typeof finish }))
+  const client = new QueryClient()
+  const tree = () => <QueryClientProvider client={client}><AiReviewScreen /></QueryClientProvider>
+  await act(async () => { render(tree()) })
+  await fireEvent.changeText(screen.getByLabelText('aiClinicalContext'), 'Private clinical context')
+  await fireEvent.press(screen.getByRole('button', { name: 'aiGenerateDraft' }))
+  await waitFor(() => expect(runAiTask).toHaveBeenCalled())
+  mockProfile = { ...mockProfile, roles: ['patient'] }
+  await act(async () => { await screen.rerender(tree()) })
+  mockProfile = { ...mockProfile, roles: ['dentist'] }
+  await act(async () => { await screen.rerender(tree()); finish(output) })
+  expect(screen.queryByDisplayValue('Private late draft')).toBeNull()
+  expect(screen.queryAllByRole('checkbox')).toHaveLength(0)
+})
+
+it('preserves same-actor draft on profile refresh and clears it on actor or appointment change', async () => {
+  const client = new QueryClient()
+  const tree = () => <QueryClientProvider client={client}><AiReviewScreen /></QueryClientProvider>
+  await act(async () => { render(tree()) })
+  await fireEvent.changeText(screen.getByLabelText('aiClinicalContext'), 'Unsaved draft')
+  mockProfile = { ...mockProfile, roles: ['dentist', 'patient'] }
+  await act(async () => { await screen.rerender(tree()) })
+  expect(screen.getByDisplayValue('Unsaved draft')).toBeTruthy()
+  mockAppointmentId = 'appt2'
+  await act(async () => { await screen.rerender(tree()) })
+  expect(screen.queryByDisplayValue('Unsaved draft')).toBeNull()
+  await fireEvent.changeText(screen.getByLabelText('aiClinicalContext'), 'Second unsaved draft')
+  mockProfile = { ...mockProfile, id: 'another-dentist' }
+  await act(async () => { await screen.rerender(tree()) })
+  expect(screen.queryByDisplayValue('Second unsaved draft')).toBeNull()
 })

@@ -3,7 +3,7 @@ import { aiReviewSchema, aiTaskRequestSchema } from '@amar-dentist/domain'
 import { useQueryClient } from '@tanstack/react-query'
 import { Redirect, Stack, useLocalSearchParams } from 'expo-router'
 import { BrainCircuit, Check, FlaskConical, ShieldAlert } from 'lucide-react-native'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Pressable, StyleSheet, Text, View } from 'react-native'
 import { Button } from '../../src/components/Button'
 import { Field } from '../../src/components/Field'
@@ -18,8 +18,19 @@ import { colors, radius, spacing } from '../../src/theme'
 
 type DentistTask='clinical_note'|'prescription'|'photo_quality'|'oral_photo_observation'|'xray_observation'
 export default function AiReviewScreen(){
+  const {profile,loading}=useAuth()
+  const {appointmentId}=useLocalSearchParams<{appointmentId:string}>()
+  if(loading)return null
+  if(!profile)return <Redirect href="/"/>
+  if(!profile.roles.includes('dentist'))return <Redirect href="/dashboard"/>
+  return <AiReviewEditor key={`${profile.id}:${appointmentId ?? ''}`}/>
+}
+
+function AiReviewEditor(){
   const{appointmentId}=useLocalSearchParams<{appointmentId:string}>();const{profile,loading}=useAuth();const{t,locale}=useLocale();const[taskType,setTaskType]=useState<DentistTask>('clinical_note');const[input,setInput]=useState('');const[result,setResult]=useState<AiTaskResult|null>(null);const[values,setValues]=useState<Record<string,string>>({});const[reviewed,setReviewed]=useState<Record<string,boolean>>({});const[busy,setBusy]=useState(false);const[message,setMessage]=useState<string|null>(null);const[aiEnabled,setAiEnabled]=useState(true);const[xrayEnabled,setXrayEnabled]=useState(false)
   const queryClient=useQueryClient()
+  const mounted=useRef(true)
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[])
   const complete=useMemo(()=>Boolean(result)&&result!.requiredFields.every((field)=>reviewed[field]),[result,reviewed])
   useEffect(()=>{setResult(null);setValues({});setReviewed({});setMessage(null)},[taskType])
   useEffect(()=>{
@@ -33,8 +44,37 @@ export default function AiReviewScreen(){
     return()=>{cancelled=true;stop()}
   },[profile?.id])
   if(!loading&&!profile)return<Redirect href="/"/>;if(!profile)return null
-  const generate=async()=>{if(!aiEnabled)return setMessage(t('aiFeatureDisabled'));setBusy(true);setMessage(null);try{if(!appointmentId)throw new Error('ENCOUNTER_REQUIRED');const record=await openClinicalEncounter(appointmentId);const mediaTask=!['clinical_note','prescription'].includes(taskType);const media=mediaTask?record.media.find((item)=>taskType==='xray_observation'?item.kind==='xray':item.kind==='photograph'):null;const parsed=aiTaskRequestSchema.safeParse({taskType,encounterId:record.encounter.id,patientProfileId:null,mediaId:media?.id??null,input,locale});if(!parsed.success)return setMessage(mediaTask&&!media?t('aiMediaRequired'):t('aiDescribeMore'));const next=await runAiTask(parsed.data);setResult(next);setValues(Object.fromEntries(Object.entries(next.output).map(([key,value])=>[key,typeof value==='string'?value:JSON.stringify(value,null,2)])));setReviewed({})}catch(error){setMessage(error instanceof Error&&error.message==='AI_PROVIDER_NOT_CONFIGURED'?t('aiNotConfigured'):error instanceof Error&&error.message==='AI_FEATURE_DISABLED'?t('aiFeatureDisabled'):t('aiUnavailable'))}finally{setBusy(false)}}
-  const accept=async()=>{if(!result||!complete)return;setBusy(true);setMessage(null);try{const finalOutput=Object.fromEntries(Object.entries(values).map(([key,value])=>{try{return[key,JSON.parse(value)]}catch{return[key,value]}}));const parsed=aiReviewSchema.parse({taskId:result.taskId,reviewedFields:reviewed,finalOutput,changeSummary:'Every required field reviewed by the treating dentist'});await reviewAiTask(parsed);if(appointmentId)await queryClient.invalidateQueries({queryKey:['clinical-encounter',appointmentId]});setMessage(t('aiDraftAccepted'));setResult(null)}catch{setMessage(t('aiUnavailable'))}finally{setBusy(false)}}
+  const generate=async()=>{
+    if(!mounted.current)return
+    if(!aiEnabled)return setMessage(t('aiFeatureDisabled'))
+    setBusy(true);setMessage(null)
+    try{
+      if(!appointmentId)throw new Error('ENCOUNTER_REQUIRED')
+      const record=await openClinicalEncounter(appointmentId)
+      if(!mounted.current)return
+      const mediaTask=!['clinical_note','prescription'].includes(taskType)
+      const media=mediaTask?record.media.find((item)=>taskType==='xray_observation'?item.kind==='xray':item.kind==='photograph'):null
+      const parsed=aiTaskRequestSchema.safeParse({taskType,encounterId:record.encounter.id,patientProfileId:null,mediaId:media?.id??null,input,locale})
+      if(!parsed.success)return setMessage(mediaTask&&!media?t('aiMediaRequired'):t('aiDescribeMore'))
+      const next=await runAiTask(parsed.data)
+      if(!mounted.current)return
+      setResult(next);setValues(Object.fromEntries(Object.entries(next.output).map(([key,value])=>[key,typeof value==='string'?value:JSON.stringify(value,null,2)])));setReviewed({})
+    }catch(error){if(mounted.current)setMessage(error instanceof Error&&error.message==='AI_PROVIDER_NOT_CONFIGURED'?t('aiNotConfigured'):error instanceof Error&&error.message==='AI_FEATURE_DISABLED'?t('aiFeatureDisabled'):t('aiUnavailable'))}
+    finally{if(mounted.current)setBusy(false)}
+  }
+  const accept=async()=>{
+    if(!mounted.current||!result||!complete)return
+    setBusy(true);setMessage(null)
+    try{
+      const finalOutput=Object.fromEntries(Object.entries(values).map(([key,value])=>{try{return[key,JSON.parse(value)]}catch{return[key,value]}}))
+      const parsed=aiReviewSchema.parse({taskId:result.taskId,reviewedFields:reviewed,finalOutput,changeSummary:'Every required field reviewed by the treating dentist'})
+      await reviewAiTask(parsed)
+      if(!mounted.current)return
+      if(appointmentId)await queryClient.invalidateQueries({queryKey:['clinical-encounter',appointmentId]})
+      if(!mounted.current)return
+      setMessage(t('aiDraftAccepted'));setResult(null)
+    }catch{if(mounted.current)setMessage(t('aiUnavailable'))}finally{if(mounted.current)setBusy(false)}
+  }
   const tasks:[DentistTask,string][]=[['clinical_note',t('aiClinicalNote')],['prescription',t('aiPrescription')],['photo_quality',t('aiPhotoQuality')],['oral_photo_observation',t('aiOralPhoto')],...(xrayEnabled?([['xray_observation',t('aiXrayExperimental')]] as [DentistTask,string][]):[])]
   return<Screen maxWidth={900} style={styles.screen}><Stack.Screen options={{title:t('aiReviewWorkspace'),headerBackTitle:t('back')}}/><View style={styles.hero}><View style={styles.icon}><BrainCircuit size={28} color={colors.mint}/></View><Text style={styles.kicker}>{t('aiDentistEyebrow')}</Text><Text style={styles.title}>{t('aiReviewWorkspace')}</Text><Text style={styles.subtitle}>{t('aiDentistBody')}</Text></View><View style={styles.warning}><ShieldAlert size={19} color={colors.teal}/><Text style={styles.warningText}>{t('aiDentistSafety')}</Text></View>
     <View style={styles.tabs}>{tasks.map(([value,label])=><Pressable key={value} onPress={()=>setTaskType(value)} accessibilityRole="tab" accessibilityState={{selected:taskType===value}} style={[styles.tab,taskType===value&&styles.tabActive]}><Text style={[styles.tabText,taskType===value&&styles.tabTextActive]}>{label}</Text></Pressable>)}</View>
