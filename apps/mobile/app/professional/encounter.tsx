@@ -49,17 +49,24 @@ export function isPrescriptionFinalized(prescription: { status: string; finalize
   return prescription.status === 'finalized' || prescription.finalizedAt !== null
 }
 
+// Both clinical query keys carry the authenticated account id so cached clinical data can never be
+// read across accounts (e.g. after signing out and into a different account on the same device).
+// The account id is placed AFTER the appointment id so prefix invalidation like
+// invalidateQueries(['clinical-encounter', appointmentId]) (used by the AI review screen) still matches.
+export const clinicalEncounterQueryKey = (accountId: string | undefined, appointmentId: string | undefined) => ['clinical-encounter', appointmentId, accountId] as const
+export const prescribingSafetyQueryKey = (accountId: string | undefined, patientProfileId: string | undefined) => ['prescribing-safety', patientProfileId, accountId] as const
+
 export default function ClinicalEncounterScreen() {
   const { appointmentId, patientName } = useLocalSearchParams<{ appointmentId: string; patientName?: string }>()
   const { profile, loading } = useAuth()
   const { t } = useLocale()
   const { width } = useWindowDimensions()
   const queryClient = useQueryClient()
-  const record = useQuery({ queryKey: ['clinical-encounter', appointmentId], queryFn: () => openClinicalEncounter(appointmentId!), enabled: Boolean(profile && appointmentId) })
+  const record = useQuery({ queryKey: clinicalEncounterQueryKey(profile?.id, appointmentId), queryFn: () => openClinicalEncounter(appointmentId!), enabled: Boolean(profile && appointmentId) })
   const safetyPatientProfileId = record.data?.encounter.patientProfileId
   // Narrow allergy/medication context for the prescribing banner. RLS-gated; an empty or denied
   // result must be shown as "unknown — confirm", never as "no known allergies" (see the band below).
-  const safety = useQuery({ queryKey: ['prescribing-safety', safetyPatientProfileId], queryFn: () => getPrescribingSafetyContext(safetyPatientProfileId!), enabled: Boolean(profile && safetyPatientProfileId) })
+  const safety = useQuery({ queryKey: prescribingSafetyQueryKey(profile?.id, safetyPatientProfileId), queryFn: () => getPrescribingSafetyContext(safetyPatientProfileId!), enabled: Boolean(profile && safetyPatientProfileId) })
   const [notes, setNotes] = useState<EncounterNoteFields>(emptyNotes)
   const notesRef = useRef<EncounterNoteFields>(notes)
   notesRef.current = notes
@@ -136,7 +143,7 @@ export default function ClinicalEncounterScreen() {
     if (incoming !== undefined) { const updated = { ...notesRef.current, [key]: incoming }; notesRef.current = updated; setNotes(updated) }
     keepMine(key)
   }
-  const refresh = async () => { await queryClient.invalidateQueries({ queryKey: ['clinical-encounter', appointmentId] }) }
+  const refresh = async () => { await queryClient.invalidateQueries({ queryKey: clinicalEncounterQueryKey(profile?.id, appointmentId) }) }
   const persistNotes = async (): Promise<boolean> => {
     if (Object.keys(conflictsRef.current).length > 0) { setMessage(t('resolveConflictsFirst')); return false }
     const encounterId = record.data?.encounter.id
@@ -276,7 +283,7 @@ export default function ClinicalEncounterScreen() {
         : <>
           <Text style={styles.rxLabel}>{t('rxSafetyAllergiesLabel')}</Text>
           {safety.data && safety.data.allergies.length > 0
-            ? safety.data.allergies.map((a) => <Text key={a.id} style={styles.rxValue}>{a.allergen}{a.reaction ? ` · ${a.reaction}` : ''}{a.severity && a.severity !== 'unknown' ? ` · ${a.severity}` : ''}</Text>)
+            ? safety.data.allergies.map((a) => <Text key={a.id} style={styles.rxValue}>{a.allergen}{a.reaction ? ` · ${a.reaction}` : ''}{a.severity && a.severity !== 'unknown' ? ` · ${t(a.severity as 'unknown' | 'mild' | 'moderate' | 'severe')}` : ''}</Text>)
             : <Text style={styles.rxValue}>{t('rxSafetyNoAllergiesOnFile')}</Text>}
           <Text style={styles.rxLabel}>{t('rxSafetyMedicationsLabel')}</Text>
           {safety.data && safety.data.currentMedications.length > 0

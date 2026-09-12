@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import ClinicalEncounterScreen, { isPrescriptionFinalized, reconcileEncounterNotes } from '../../app/professional/encounter'
+import ClinicalEncounterScreen, { clinicalEncounterQueryKey, isPrescriptionFinalized, prescribingSafetyQueryKey, reconcileEncounterNotes } from '../../app/professional/encounter'
 import { finalizeEncounter, finalizePrescription, getPrescribingSafetyContext, openClinicalEncounter, saveAndFinalizeEncounter, saveEncounter } from '../lib/phase4'
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }))
@@ -250,5 +250,41 @@ describe('prescribing safety context', () => {
     show()
     await waitFor(() => expect(screen.getByText('rxSafetyUnavailable')).toBeTruthy())
     expect(screen.getByText('rxSafetyConfirm')).toBeTruthy()
+  })
+
+  it('renders allergy severity through translations, not the raw enum (Bengali regression)', async () => {
+    // The screen mock returns the message KEY for t(), so a severity mapped through t() renders the
+    // key ('moderate') rather than a hardcoded English word; phase4 tests assert the real EN/BN values.
+    jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: { patientProfileId: '00000000-0000-4000-8000-000000000001' } }) as never)
+    jest.mocked(getPrescribingSafetyContext).mockResolvedValue({ historyRecorded: true, allergies: [{ id: 'a1', allergen: 'Penicillin', reaction: 'Rash', severity: 'moderate', active: true }], currentMedications: [] })
+    show()
+    await waitFor(() => expect(screen.getByText('Penicillin · Rash · moderate')).toBeTruthy())
+  })
+
+  it('does not show a previous patient\'s allergies after switching patients', async () => {
+    jest.mocked(openClinicalEncounter)
+      .mockResolvedValueOnce(bundle({ encounter: { patientProfileId: 'patient-A' } }) as never)
+      .mockResolvedValue(bundle({ encounter: { patientProfileId: 'patient-B' } }) as never)
+    jest.mocked(getPrescribingSafetyContext).mockImplementation(async (pid: string) => pid === 'patient-A'
+      ? { historyRecorded: true, allergies: [{ id: 'a', allergen: 'Penicillin', reaction: 'Rash', severity: 'moderate', active: true }], currentMedications: [] }
+      : { historyRecorded: true, allergies: [{ id: 'b', allergen: 'Latex', reaction: 'Hives', severity: 'mild', active: true }], currentMedications: [] })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await waitFor(() => expect(screen.getByText(/Penicillin/)).toBeTruthy())
+    await act(async () => { await client.invalidateQueries({ queryKey: ['clinical-encounter'] }) })
+    await waitFor(() => expect(screen.getByText(/Latex/)).toBeTruthy())
+    expect(screen.queryByText(/Penicillin/)).toBeNull()
+  })
+})
+
+describe('clinical query keys are scoped to the authenticated account', () => {
+  it('changes with the account so cached clinical data cannot leak across logins', () => {
+    expect(clinicalEncounterQueryKey('accountA', 'appt1')).not.toEqual(clinicalEncounterQueryKey('accountB', 'appt1'))
+    expect(prescribingSafetyQueryKey('accountA', 'patient1')).not.toEqual(prescribingSafetyQueryKey('accountB', 'patient1'))
+    expect(clinicalEncounterQueryKey('accountA', 'appt1')).toContain('accountA')
+    expect(prescribingSafetyQueryKey('accountA', 'patient1')).toContain('accountA')
+  })
+  it('keeps the appointment-id prefix so existing prefix invalidation (AI review) still matches', () => {
+    expect(clinicalEncounterQueryKey('accountA', 'appt1').slice(0, 2)).toEqual(['clinical-encounter', 'appt1'])
   })
 })
