@@ -3,10 +3,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ClinicalEncounterScreen, { clinicalEncounterQueryKey, isPrescriptionFinalized, prescribingSafetyQueryKey, reconcileEncounterNotes } from '../../app/professional/encounter'
 import { finalizeEncounter, finalizePrescription, getPrescribingSafetyContext, openClinicalEncounter, saveAndFinalizeEncounter, saveEncounter } from '../lib/phase4'
 
+// Mutable auth/route state so tests can revoke the dentist role or switch actor/appointment and rerender.
+const mockAuth: { profile: { id: string; roles: string[] } | null; loading: boolean } = { profile: { id: '20000000-0000-4000-8000-000000000001', roles: ['dentist'] }, loading: false }
+const mockParams: { appointmentId?: string; patientName?: string } = { appointmentId: 'appt1' }
+
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }))
-jest.mock('expo-router', () => ({ Redirect: () => null, Stack: { Screen: () => null }, router: { push: jest.fn(), back: jest.fn() }, useLocalSearchParams: () => ({ appointmentId: 'appt1' }) }))
+jest.mock('expo-router', () => ({ Redirect: () => null, Stack: { Screen: () => null }, router: { push: jest.fn(), back: jest.fn() }, useLocalSearchParams: () => mockParams }))
 jest.mock('expo-document-picker', () => ({ getDocumentAsync: jest.fn() }))
-jest.mock('../providers/AuthProvider', () => ({ useAuth: () => ({ profile: { id: '20000000-0000-4000-8000-000000000001' }, loading: false }) }))
+jest.mock('../providers/AuthProvider', () => ({ useAuth: () => mockAuth }))
 jest.mock('../providers/LocaleProvider', () => ({ useLocale: () => ({ t: (key: string) => key, locale: 'en' }) }))
 jest.mock('../components/Screen', () => ({ Screen: ({ children }: { children: React.ReactNode }) => children }))
 jest.mock('../lib/phase4', () => ({
@@ -24,7 +28,14 @@ function bundle(overrides: { encounter?: Record<string, unknown>; prescriptions?
 function show() {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })}><ClinicalEncounterScreen /></QueryClientProvider>)
 }
-beforeEach(() => { jest.clearAllMocks(); jest.mocked(saveAndFinalizeEncounter).mockResolvedValue(undefined) })
+beforeEach(() => {
+  jest.clearAllMocks()
+  jest.mocked(saveAndFinalizeEncounter).mockResolvedValue(undefined)
+  mockAuth.profile = { id: '20000000-0000-4000-8000-000000000001', roles: ['dentist'] }
+  mockAuth.loading = false
+  mockParams.appointmentId = 'appt1'
+  mockParams.patientName = undefined
+})
 
 it('gives an existing draft prescription an explicit dentist-only finalize control that finalizes it', async () => {
   jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ prescriptions: [{ id: 'rx1', status: 'draft', finalizedAt: null, instructions: '', documentPath: null, items: [item] }] }) as never)
@@ -286,5 +297,71 @@ describe('clinical query keys are scoped to the authenticated account', () => {
   })
   it('keeps the appointment-id prefix so existing prefix invalidation (AI review) still matches', () => {
     expect(clinicalEncounterQueryKey('accountA', 'appt1').slice(0, 2)).toEqual(['clinical-encounter', 'appt1'])
+  })
+})
+
+describe('clinical editor is gated by dentist role and unmounts local state on access change', () => {
+  const draft = () => bundle({ encounter: { patientProfileId: '00000000-0000-4000-8000-000000000001' } })
+
+  it('discards a visible clinical draft when the dentist role is revoked', async () => {
+    jest.mocked(openClinicalEncounter).mockResolvedValue(draft() as never)
+    const view = await show()
+    await waitFor(() => expect(screen.getByLabelText('assessment')).toBeTruthy())
+    await fireEvent.changeText(screen.getByLabelText('assessment'), 'private draft note')
+    expect(screen.getByDisplayValue('private draft note')).toBeTruthy()
+    mockAuth.profile = { id: '20000000-0000-4000-8000-000000000001', roles: [] }
+    await view.rerender(<QueryClientProvider client={new QueryClient()}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await waitFor(() => expect(screen.queryByDisplayValue('private draft note')).toBeNull())
+    expect(screen.queryByLabelText('assessment')).toBeNull()
+  })
+
+  it('discards local clinical edits when the actor (account) changes', async () => {
+    jest.mocked(openClinicalEncounter).mockResolvedValue(draft() as never)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    const view = await render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await waitFor(() => expect(screen.getByLabelText('assessment')).toBeTruthy())
+    await fireEvent.changeText(screen.getByLabelText('assessment'), 'actor A note')
+    mockAuth.profile = { id: '20000000-0000-4000-8000-000000000002', roles: ['dentist'] }
+    await view.rerender(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    // Remounted for the new account: assessment reloads empty and the previous account's edit is gone.
+    await waitFor(() => expect(screen.getByLabelText('assessment').props.value).toBe(''))
+    expect(screen.queryByDisplayValue('actor A note')).toBeNull()
+  })
+
+  it('discards local clinical edits when the appointment changes', async () => {
+    jest.mocked(openClinicalEncounter).mockResolvedValue(draft() as never)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    const view = await render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await waitFor(() => expect(screen.getByLabelText('assessment')).toBeTruthy())
+    await fireEvent.changeText(screen.getByLabelText('assessment'), 'appointment A note')
+    mockParams.appointmentId = 'appt2'
+    await view.rerender(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await waitFor(() => expect(screen.queryByDisplayValue('appointment A note')).toBeNull())
+  })
+
+  it('preserves unsaved edits across a refresh when actor, appointment and permissions are unchanged', async () => {
+    jest.mocked(openClinicalEncounter).mockResolvedValue(draft() as never)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await waitFor(() => expect(screen.getByLabelText('assessment')).toBeTruthy())
+    await fireEvent.changeText(screen.getByLabelText('assessment'), 'kept across poll')
+    await act(async () => { await client.invalidateQueries({ queryKey: ['clinical-encounter'] }) })
+    expect(screen.getByDisplayValue('kept across poll')).toBeTruthy()
+  })
+
+  it('does not run a follow-on clinical mutation when access is revoked mid-finalize', async () => {
+    let resolveRefetch: (value: unknown) => void = () => {}
+    jest.mocked(openClinicalEncounter)
+      .mockResolvedValueOnce(draft() as never)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveRefetch = resolve }) as never)
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    const view = await render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await waitFor(() => expect(screen.getByRole('button', { name: /finalizeEncounter/ })).toBeTruthy())
+    await fireEvent.press(screen.getByRole('button', { name: /finalizeEncounter/ }))
+    // Revoke access while the pre-finalize refresh is still in flight; the editor unmounts.
+    mockAuth.profile = { id: '20000000-0000-4000-8000-000000000001', roles: [] }
+    await view.rerender(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await act(async () => { resolveRefetch(draft()); await Promise.resolve() })
+    expect(saveAndFinalizeEncounter).not.toHaveBeenCalled()
   })
 })
