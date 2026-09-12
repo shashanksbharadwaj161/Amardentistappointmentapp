@@ -173,6 +173,7 @@ function ClinicalEncounterEditor({ actorId, appointmentId, patientName }: { acto
     if (busy || finalizingRef.current) return
     setBusy('notes'); setMessage(null)
     const saved = await persistNotes()
+    if (!mountedRef.current) return
     if (saved) { setMessage(t('clinicalDraftSaved')); await refresh() }
     setBusy(null)
   }
@@ -180,13 +181,13 @@ function ClinicalEncounterEditor({ actorId, appointmentId, patientName }: { acto
     const parsed = clinicalDiagnosisSchema.safeParse({ encounterId: record.data?.encounter.id, code: diagnosisCode, diagnosis, notes: '' })
     if (!parsed.success) return setMessage(t('checkClinicalFields'))
     setBusy('diagnosis'); setMessage(null)
-    try { await addDiagnosis(parsed.data); setDiagnosis(''); setDiagnosisCode(''); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
+    try { await addDiagnosis(parsed.data); if (!mountedRef.current) return; setDiagnosis(''); setDiagnosisCode(''); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
   }
   const chartTooth = async () => {
     const parsed = toothObservationSchema.safeParse({ encounterId: record.data?.encounter.id, dentition, fdiToothCode: toothCode, surface, finding, changeReason: 'Odontogram reviewed' })
     if (!parsed.success) return setMessage(t('invalidFdiTooth'))
     setBusy('tooth'); setMessage(null)
-    try { await saveToothObservation(parsed.data); setToothCode(''); setFinding(''); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
+    try { await saveToothObservation(parsed.data); if (!mountedRef.current) return; setToothCode(''); setFinding(''); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
   }
   const prescribe = async () => {
     const parsed = prescriptionDraftSchema.safeParse({ encounterId: record.data?.encounter.id, prescriptionId: null, instructions: t('takeAsDirected'), changeReason: 'Prescription reviewed', items: [{ medicineName: medicine, strength, dosage, route: 'oral', frequency, duration, instructions: '' }] })
@@ -196,27 +197,31 @@ function ClinicalEncounterEditor({ actorId, appointmentId, patientName }: { acto
   }
   const finalizeExistingPrescription = async (prescriptionId: string) => {
     setBusy(`prescription-${prescriptionId}`); setMessage(null)
-    try { await finalizePrescription(prescriptionId); setMessage(t('prescriptionFinalized')); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
+    try { await finalizePrescription(prescriptionId); if (!mountedRef.current) return; setMessage(t('prescriptionFinalized')); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
   }
   const saveTreatmentPlan = async () => {
     const price = estimatedPrice.trim() ? Number(estimatedPrice) : null
     const parsed = treatmentPlanSchema.safeParse({ encounterId: record.data?.encounter.id, title: treatmentTitle, notes: '', items: [{ description: treatmentItem, fdiToothCode: treatmentTooth.trim() || null, estimatedPriceBdt: Number.isFinite(price) ? price : null }] })
     if (!parsed.success) return setMessage(t('checkClinicalFields'))
     setBusy('treatment'); setMessage(null)
-    try { await createAndFinalizeTreatmentPlan(parsed.data); setTreatmentTitle(''); setTreatmentItem(''); setTreatmentTooth(''); setEstimatedPrice(''); setMessage(t('treatmentPlanFinalized')); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
+    try { await createAndFinalizeTreatmentPlan(parsed.data, () => mountedRef.current); if (!mountedRef.current) return; setTreatmentTitle(''); setTreatmentItem(''); setTreatmentTooth(''); setEstimatedPrice(''); setMessage(t('treatmentPlanFinalized')); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
   }
   const attachMedia = async (kind: 'photograph' | 'xray') => {
     const encounterId = record.data?.encounter.id
     if (!encounterId) return
     const picked = await DocumentPicker.getDocumentAsync({ type: ['image/jpeg', 'image/png', 'application/dicom'], copyToCacheDirectory: true, multiple: false })
+    // Access may have been revoked (role/actor/appointment change) while the picker was open; do not
+    // upload clinical media for an unmounted, no-longer-authorized editor.
+    if (!mountedRef.current) return
     const asset = picked.assets?.[0]
     if (picked.canceled || !asset) return
     setBusy(`media-${kind}`); setMessage(null)
-    try { await uploadClinicalMedia(encounterId, kind, asset, mediaCaption); setMediaCaption(''); setMessage(t('mediaUploaded')); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
+    try { await uploadClinicalMedia(encounterId, kind, asset, mediaCaption, () => mountedRef.current); if (!mountedRef.current) return; setMediaCaption(''); setMessage(t('mediaUploaded')); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
   }
   const viewMedia = async (storagePath: string) => {
     setBusy(storagePath); setMessage(null)
-    try { const url = await getClinicalMediaDownloadUrl(storagePath); if (url) await Linking.openURL(url) } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
+    // A signed clinical-media URL fetched before access was lost must not be opened afterwards.
+    try { const url = await getClinicalMediaDownloadUrl(storagePath); if (!mountedRef.current) return; if (url) await Linking.openURL(url) } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
   }
   const finalize = async () => {
     if (!record.data || busy || finalizingRef.current) return
