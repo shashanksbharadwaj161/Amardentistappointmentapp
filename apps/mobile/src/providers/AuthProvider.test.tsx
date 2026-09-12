@@ -10,13 +10,14 @@ let mockFailRoles = false
 const mockGetSession = jest.fn()
 const mockProfile = jest.fn()
 const mockSignOut = jest.fn()
+const mockDentistStatus = jest.fn()
 let latestAuth: ReturnType<typeof useAuth>
 jest.mock('expo-linking', () => ({ getInitialURL: () => Promise.resolve(null), addEventListener: () => ({ remove: jest.fn() }), createURL: () => '' }))
 jest.mock('../lib/access-refresh', () => ({ subscribeToAccessRefresh: (callback: () => void) => { mockRefresh = callback; return jest.fn() } }))
 jest.mock('../lib/supabase', () => ({ isSupabaseConfigured: true, supabase: {
   auth: { signOut: () => mockSignOut(), getSession: () => mockGetSession(), onAuthStateChange: (callback: typeof mockListener) => { mockListener = callback; return { data: { subscription: { unsubscribe: jest.fn() } } } } },
-  from: (table: string) => { let id: string; const query = { select: () => query, eq: (_key: string, value: string) => { id = value; return query }, single: () => query,
-    then: (resolve: (result: unknown) => unknown) => (table === 'profiles' ? mockProfile(id) : Promise.resolve({ data: mockRoles.map(role => ({ role })), error: mockFailRoles ? { message: 'private failure' } : null })).then(resolve),
+  from: (table: string) => { let id: string; const query = { select: () => query, eq: (_key: string, value: string) => { id = value; return query }, single: () => query, maybeSingle: () => query,
+    then: (resolve: (result: unknown) => unknown, reject: (error: unknown) => unknown) => (table === 'profiles' ? mockProfile(id) : table === 'dentist_profiles' ? mockDentistStatus(id) : Promise.resolve({ data: mockRoles.map(role => ({ role })), error: mockFailRoles ? { message: 'private failure' } : null })).then(resolve, reject),
   }; return query },
 } }))
 const session = (id: string) => ({ user: { id } })
@@ -32,6 +33,7 @@ beforeEach(() => {
   mockGetSession.mockResolvedValue({ data: { session: session('A') }, error: null })
   mockProfile.mockImplementation((id: string) => Promise.resolve(profile(id)))
   mockSignOut.mockResolvedValue({ error: null })
+  mockDentistStatus.mockResolvedValue({ data: { status: 'approved' }, error: null })
 })
 
 it('does not restore a delayed A profile after sign-out', async () => {
@@ -91,4 +93,44 @@ it('locally signs out during a pending profile load and reports remote failure',
   expect(latestAuth.passwordSetupMode).toBeNull()
   await act(async () => { finish(profile('A')); mockRefresh() })
   expect(screen.getByText('no-profile')).toBeTruthy()
+})
+
+it('removes suspended clinical access on refresh even when the assigned dentist role remains', async () => {
+  mockRoles = ['patient', 'dentist', 'clinic_owner']
+  const client = await mount()
+  expect(latestAuth.profile?.roles).toContain('dentist')
+  client.setQueryData(['clinical-record'], 'private clinical data')
+  mockDentistStatus.mockResolvedValue({ data: { status: 'suspended' }, error: null })
+  await act(async () => { mockRefresh() })
+  expect(mockRoles).toContain('dentist')
+  expect(latestAuth.profile?.roles).toEqual(['patient', 'clinic_owner'])
+  expect(latestAuth.profile?.id).toBe('A')
+  expect(client.getQueryData(['clinical-record'])).toBeUndefined()
+})
+
+it('enables approved clinical access on refresh and preserves cache on unchanged approval', async () => {
+  mockRoles = ['patient', 'dentist']
+  mockDentistStatus.mockResolvedValue({ data: { status: 'submitted' }, error: null })
+  const client = await mount()
+  expect(latestAuth.profile?.roles).toEqual(['patient'])
+  mockDentistStatus.mockResolvedValue({ data: { status: 'approved' }, error: null })
+  await act(async () => { mockRefresh() })
+  expect(latestAuth.profile?.roles).toEqual(['patient', 'dentist'])
+  client.setQueryData(['clinical-record'], 'approved clinical data')
+  await act(async () => { mockRefresh() })
+  expect(latestAuth.profile?.roles).toEqual(['patient', 'dentist'])
+  expect(client.getQueryData(['clinical-record'])).toBe('approved clinical data')
+  expect(mockDentistStatus).toHaveBeenCalledWith('A')
+})
+
+it.each(['missing', 'query-error', 'rejected-request'])('fails closed for %s verification while retaining application access', async failure => {
+  mockRoles = ['patient', 'dentist']
+  const client = await mount()
+  client.setQueryData(['clinical-record'], 'private clinical data')
+  if (failure === 'rejected-request') mockDentistStatus.mockRejectedValue(new Error('private transport failure'))
+  else mockDentistStatus.mockResolvedValue({ data: failure === 'missing' ? null : { status: 'approved' }, error: failure === 'query-error' ? { message: 'private query failure' } : null })
+  await act(async () => { mockRefresh() })
+  expect(latestAuth.profile?.id).toBe('A')
+  expect(latestAuth.profile?.roles).toEqual(['patient'])
+  expect(client.getQueryData(['clinical-record'])).toBeUndefined()
 })

@@ -40,13 +40,22 @@ async function loadProfile(userId: string): Promise<Profile | null> {
     supabase.from('user_roles').select('role').eq('user_id', userId),
   ])
   if (profileError || rolesError || !profile || !roles) throw new Error('PROFILE_UNAVAILABLE')
+  const assignedRoles = roles.map(({ role }) => role) as AppRole[]
+  let approvedDentist = false
+  if (assignedRoles.includes('dentist')) {
+    try {
+      const { data: dentist, error } = await supabase.from('dentist_profiles').select('status').eq('user_id', userId).maybeSingle()
+      approvedDentist = !error && dentist?.status === 'approved'
+    } catch { /* Unverified clinical access stays closed; application access remains available. */ }
+  }
   return {
     id: profile.id,
     email: profile.email,
     fullName: profile.full_name,
     locale: profile.locale,
     activeMode: profile.active_mode,
-    roles: (roles?.map(({ role }) => role) ?? ['patient']) as AppRole[],
+    // Assignment survives suspension in the database; clinical UI access must not.
+    roles: assignedRoles.filter(role => role !== 'dentist' || approvedDentist),
   }
 }
 
