@@ -71,10 +71,22 @@ export function createAiTaskHandler(config:AiConfig,clientFactory:typeof createC
     const preparedResult=await caller.rpc('prepare_ai_task',{target_task_type:body.taskType,target_encounter_id:body.encounterId??null,target_patient_profile_id:body.patientProfileId??null,target_media_id:body.mediaId??null,user_input:body.input.trim(),target_locale:body.locale??'en'})
     const prepared=preparedResult.data?.[0] as Prepared|undefined;if(preparedResult.error||!prepared)return json(403,{ok:false,error:{code:preparedResult.error?.message??'AI_TASK_DENIED'}})
     const service=clientFactory(config.supabaseUrl,config.serviceRoleKey,{auth:{persistSession:false}})
-    const configuredLimit=await service.rpc('ai_daily_limit',{actor:auth.data.user.id,target_audience:prepared.audience});if(configuredLimit.error||typeof configuredLimit.data!=='number')return json(503,{ok:false,error:{code:'AI_LIMIT_UNAVAILABLE'}})
-    const limit=await service.rpc('consume_api_limit',{actor:auth.data.user.id,target_scope:`ai:${prepared.audience}`,max_requests:configuredLimit.data,window_minutes:1440});if(limit.error)return json(503,{ok:false,error:{code:'AI_LIMIT_UNAVAILABLE'}});if(limit.data!==true)return json(429,{ok:false,error:{code:'AI_RATE_LIMITED'}})
-    const secretResult=await service.rpc('ai_task_provider_secret',{target_task_id:prepared.task_id});const secret=secretResult.data?.[0] as {provider:'openai'|'anthropic';model:string;secret:string}|undefined
-    if(secretResult.error||!secret||!['openai','anthropic'].includes(secret.provider)||typeof secret.secret!=='string'||!secret.secret||typeof secret.model!=='string'||(secret.provider==='anthropic'&&(!/^claude-[a-z0-9][a-z0-9._-]*$/.test(secret.model)||secret.model.length>120))){const failed=await service.rpc('complete_ai_task',{target_task_id:prepared.task_id,provider_output:{},patient_safe_output:null,target_provider_request_id:'',target_input_tokens:0,target_output_tokens:0,target_cost:0,target_error:'AI_PROVIDER_NOT_CONFIGURED'});return json(failed.error?500:503,{ok:false,error:{code:failed.error?'AI_AUDIT_PERSIST_FAILED':'AI_PROVIDER_NOT_CONFIGURED'}})}
+    const failPrepared=async(code:string,status:number)=>{
+      try{
+        const failed=await service.rpc('complete_ai_task',{target_task_id:prepared.task_id,provider_output:{},patient_safe_output:null,target_provider_request_id:'',target_input_tokens:0,target_output_tokens:0,target_cost:0,target_error:code})
+        if(!failed.error)return json(status,{ok:false,error:{code}})
+      }catch{/* Only stable error codes cross the response and audit boundaries. */}
+      return json(500,{ok:false,error:{code:'AI_AUDIT_PERSIST_FAILED'}})
+    }
+    try{
+      const configuredLimit=await service.rpc('ai_daily_limit',{actor:auth.data.user.id,target_audience:prepared.audience})
+      if(configuredLimit.error||typeof configuredLimit.data!=='number'||!Number.isSafeInteger(configuredLimit.data)||configuredLimit.data<0)return await failPrepared('AI_LIMIT_UNAVAILABLE',503)
+      const limit=await service.rpc('consume_api_limit',{actor:auth.data.user.id,target_scope:`ai:${prepared.audience}`,max_requests:configuredLimit.data,window_minutes:1440})
+      if(limit.error||typeof limit.data!=='boolean')return await failPrepared('AI_LIMIT_UNAVAILABLE',503)
+      if(!limit.data)return await failPrepared('AI_RATE_LIMITED',429)
+    }catch{return await failPrepared('AI_LIMIT_UNAVAILABLE',503)}
+    const secretResult=await service.rpc('ai_task_provider_secret',{target_task_id:prepared.task_id}).then(result=>result,()=>({data:null,error:true}));const secret=secretResult.data?.[0] as {provider:'openai'|'anthropic';model:string;secret:string}|undefined
+    if(secretResult.error||!secret||!['openai','anthropic'].includes(secret.provider)||typeof secret.secret!=='string'||!secret.secret||typeof secret.model!=='string'||(secret.provider==='anthropic'&&(!/^claude-[a-z0-9][a-z0-9._-]*$/.test(secret.model)||secret.model.length>120)))return await failPrepared('AI_PROVIDER_NOT_CONFIGURED',503)
     try{
     let image:undefined|{contentType:string;data:string}
     const mediaPath=String((prepared.context as Record<string,unknown>).mediaPath??'');if(mediaPath){const downloaded=await service.storage.from('clinical-media').download(mediaPath);if(downloaded.error||!downloaded.data)throw new Error('AI_MEDIA_UNAVAILABLE');if(!['image/jpeg','image/png'].includes(downloaded.data.type)||downloaded.data.size>5*1024*1024)throw new Error('AI_MEDIA_UNSUPPORTED');const bytes=new Uint8Array(await downloaded.data.arrayBuffer());let binary='';for(let index=0;index<bytes.length;index+=0x8000)binary+=String.fromCharCode(...bytes.subarray(index,index+0x8000));image={contentType:downloaded.data.type||'image/jpeg',data:btoa(binary)}}
@@ -82,10 +94,10 @@ export function createAiTaskHandler(config:AiConfig,clientFactory:typeof createC
       result.output=validateOutput(result.output,schemaFor(body.taskType))
       if(typeof result.requestId!=='string'||!result.requestId||!Number.isSafeInteger(result.inputTokens)||result.inputTokens<0||!Number.isSafeInteger(result.outputTokens)||result.outputTokens<0)throw new Error('AI_OUTPUT_INVALID')
       const safe=prepared.audience==='patient'&&patientSafe(result.output)?result.output:null;const unsafe=prepared.audience==='patient'&&!safe
-      const completed=await service.rpc('complete_ai_task',{target_task_id:prepared.task_id,provider_output:result.output,patient_safe_output:safe,target_provider_request_id:result.requestId,target_input_tokens:result.inputTokens,target_output_tokens:result.outputTokens,target_cost:0,target_error:unsafe?'AI_UNSAFE_OUTPUT_FILTERED':null})
+      const completed=await service.rpc('complete_ai_task',{target_task_id:prepared.task_id,provider_output:result.output,patient_safe_output:safe,target_provider_request_id:result.requestId,target_input_tokens:result.inputTokens,target_output_tokens:result.outputTokens,target_cost:0,target_error:unsafe?'AI_UNSAFE_OUTPUT_FILTERED':null}).then(result=>result,()=>({error:true}))
       if(completed.error)return json(500,{ok:false,error:{code:'AI_AUDIT_PERSIST_FAILED'}})
       if(unsafe)return json(422,{ok:false,error:{code:'AI_UNSAFE_OUTPUT_FILTERED'}})
       return json(200,{ok:true,data:{taskId:prepared.task_id,status:prepared.audience==='dentist'?'awaiting_review':'completed',output:prepared.audience==='dentist'?result.output:safe,requiredFields:prepared.required_fields}})
-    }catch(error){const allowed=new Set(['AI_PROVIDER_FAILED','AI_PROVIDER_UNAVAILABLE','AI_PROVIDER_RATE_LIMITED','AI_PROVIDER_AUTH_FAILED','AI_OUTPUT_INVALID','AI_MEDIA_UNSUPPORTED','AI_MEDIA_UNAVAILABLE','AI_PROVIDER_NOT_CONFIGURED']);const code=error instanceof Error&&allowed.has(error.message)?error.message:'AI_PROVIDER_FAILED';const failed=await service.rpc('complete_ai_task',{target_task_id:prepared.task_id,provider_output:{},patient_safe_output:null,target_provider_request_id:'',target_input_tokens:0,target_output_tokens:0,target_cost:0,target_error:code});return json(failed.error?500:502,{ok:false,error:{code:failed.error?'AI_AUDIT_PERSIST_FAILED':code}})}
+    }catch(error){const allowed=new Set(['AI_PROVIDER_FAILED','AI_PROVIDER_UNAVAILABLE','AI_PROVIDER_RATE_LIMITED','AI_PROVIDER_AUTH_FAILED','AI_OUTPUT_INVALID','AI_MEDIA_UNSUPPORTED','AI_MEDIA_UNAVAILABLE','AI_PROVIDER_NOT_CONFIGURED']);const code=error instanceof Error&&allowed.has(error.message)?error.message:'AI_PROVIDER_FAILED';return await failPrepared(code,502)}
   }
 }

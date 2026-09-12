@@ -3,11 +3,15 @@ import { createAiTaskHandler, type AiProvider } from './handler.ts'
 const config={supabaseUrl:'https://project.test',publishableKey:'public',serviceRoleKey:'service'};const task='a0000000-0000-4000-8000-000000000001';const patient='a0000000-0000-4000-8000-000000000002'
 function assert(value:boolean,message:string){if(!value)throw new Error(message)}
 function request(body:unknown,auth=true){return new Request('https://project.test/functions/v1/ai-task',{method:'POST',headers:{'content-type':'application/json',...(auth?{authorization:'Bearer user'}:{})},body:JSON.stringify(body)})}
-type Options={selected?:string;model?:string;secretMissing?:boolean;mediaType?:string;calls?:Array<{name:string;args:Record<string,unknown>}>}
+type Options={selected?:string;model?:string;secretMissing?:boolean;mediaType?:string;calls?:Array<{name:string;args:Record<string,unknown>}>;dailyLimit?:unknown;limitResult?:unknown;rpcError?:string;rpcThrows?:string}
 function factory(audience:'dentist'|'patient'='dentist',auditFails=false,options:Options={}){
   const caller={auth:{getUser:async()=>({data:{user:{id:'user'}},error:null})},rpc:async()=>({data:[{task_id:task,prompt_text:'safe',output_schema:{},context:options.mediaType?{mediaPath:'private/photo'}:{},required_fields:audience==='dentist'?['subjective']:[],audience}],error:null})}
   const service={rpc:async(name:string,args:Record<string,unknown>)=>{
     options.calls?.push({name,args})
+    if(options.rpcThrows===name)throw new Error('private transport detail')
+    if(options.rpcError===name)return{data:null,error:{message:'private database detail'}}
+    if(name==='ai_daily_limit'&&'dailyLimit' in options)return{data:options.dailyLimit,error:null}
+    if(name==='consume_api_limit'&&'limitResult' in options)return{data:options.limitResult,error:null}
     return name==='ai_daily_limit'?{data:audience==='patient'?5:15,error:null}:name==='consume_api_limit'?{data:true,error:null}:name==='ai_task_provider_secret'?{data:options.secretMissing?[]:[{provider:options.selected??'openai',model:options.model??(options.selected==='anthropic'?'claude-haiku-4-5-20251001':'model'),secret:'secret-value-long-enough'}],error:null}:name==='complete_ai_task'&&auditFails?{data:null,error:{message:'write failed'}}:{data:null,error:null}
   },storage:{from:()=>({download:async()=>({data:new Blob(['fixture'],{type:options.mediaType}),error:null})})}}
   return((_u:string,key:string)=>key==='public'?caller:service) as unknown as typeof createClient
@@ -69,4 +73,43 @@ Deno.test('Anthropic task preserves a dynamically configured Claude model',async
   const provider:AiProvider=async input=>{received=input.model;return await dentistProvider(input)}
   const response=await createAiTaskHandler(config,factory('dentist',false,{selected:'anthropic',model}),dentistProvider,provider)(request({taskType:'clinical_note',encounterId:patient,input:'Draft recorded facts'}))
   assert(response.status===200&&received===model,'configured model preserved')
+})
+
+for(const scenario of [
+  {name:'quota exhausted',options:{limitResult:false},code:'AI_RATE_LIMITED',status:429},
+  {name:'zero quota',options:{dailyLimit:0,limitResult:false},code:'AI_RATE_LIMITED',status:429},
+  ...[null,'15',-1,1.5,NaN,Infinity].map(dailyLimit=>({name:'invalid daily quota '+String(dailyLimit),options:{dailyLimit},code:'AI_LIMIT_UNAVAILABLE',status:503})),
+  ...[null,'true',1].map(limitResult=>({name:'invalid admission result '+String(limitResult),options:{limitResult},code:'AI_LIMIT_UNAVAILABLE',status:503})),
+  ...['ai_daily_limit','consume_api_limit'].flatMap(name=>[
+    {name:name+' database failure',options:{rpcError:name},code:'AI_LIMIT_UNAVAILABLE',status:503},
+    {name:name+' transport failure',options:{rpcThrows:name},code:'AI_LIMIT_UNAVAILABLE',status:503},
+  ]),
+])Deno.test('prepared task terminates on '+scenario.name,async()=>{
+  const calls:Array<{name:string;args:Record<string,unknown>}>=[];let invoked=0
+  const provider:AiProvider=async input=>{invoked++;return await dentistProvider(input)}
+  const response=await createAiTaskHandler(config,factory('dentist',false,{...scenario.options,calls}),provider,provider)(request({taskType:'clinical_note',encounterId:patient,input:'Sensitive patient input'}))
+  assert(response.status===scenario.status&&(await response.json()).error.code===scenario.code,'stable error response')
+  assert(invoked===0&&!calls.some(call=>call.name==='ai_task_provider_secret'),'provider and credentials untouched')
+  const terminal=calls.filter(call=>call.name==='complete_ai_task')
+  assert(terminal.length===1&&terminal[0].args.target_task_id===task&&terminal[0].args.target_error===scenario.code,'prepared task marked failed exactly once')
+  assert(JSON.stringify(terminal[0].args.provider_output)==='{}'&&terminal[0].args.patient_safe_output===null&&terminal[0].args.target_input_tokens===0&&terminal[0].args.target_output_tokens===0,'failure has no model output or token usage')
+  assert(!JSON.stringify(calls).includes('Sensitive')&&!JSON.stringify(calls).includes('private'),'input and raw errors excluded from server audit calls')
+})
+for(const audit of ['error','throws'])Deno.test('quota terminal persistence '+audit+' is reported explicitly',async()=>{
+  const calls:Array<{name:string;args:Record<string,unknown>}>=[]
+  const response=await createAiTaskHandler(config,factory('dentist',audit==='error',{limitResult:false,calls,...(audit==='throws'?{rpcThrows:'complete_ai_task'}:{})}),dentistProvider)(request({taskType:'clinical_note',encounterId:patient,input:'Draft recorded facts'}))
+  assert(response.status===500&&(await response.json()).error.code==='AI_AUDIT_PERSIST_FAILED','audit failure response')
+  assert(calls.filter(call=>call.name==='complete_ai_task').length===1,'one terminal persistence attempt')
+})
+Deno.test('credential transport failure terminates the prepared task safely',async()=>{
+  const calls:Array<{name:string;args:Record<string,unknown>}>=[]
+  const response=await createAiTaskHandler(config,factory('dentist',false,{rpcThrows:'ai_task_provider_secret',calls}),dentistProvider)(request({taskType:'clinical_note',encounterId:patient,input:'Draft recorded facts'}))
+  assert(response.status===503&&(await response.json()).error.code==='AI_PROVIDER_NOT_CONFIGURED','safe credential failure')
+  assert(calls.some(call=>call.name==='complete_ai_task'&&call.args.target_error==='AI_PROVIDER_NOT_CONFIGURED'),'terminal failure persisted')
+})
+Deno.test('completion transport failure withholds output and avoids a second completion',async()=>{
+  const calls:Array<{name:string;args:Record<string,unknown>}>=[]
+  const response=await createAiTaskHandler(config,factory('dentist',false,{rpcThrows:'complete_ai_task',calls}),dentistProvider)(request({taskType:'clinical_note',encounterId:patient,input:'Draft recorded facts'}))
+  assert(response.status===500&&(await response.json()).error.code==='AI_AUDIT_PERSIST_FAILED','audit failure response')
+  assert(calls.filter(call=>call.name==='complete_ai_task').length===1,'ambiguous completion is not overwritten')
 })
