@@ -2,6 +2,7 @@ import { Activity, Building2, CircleDollarSign, Gavel, ShieldCheck, Users } from
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { RevokeAdminDialog, type AdminRemovalTarget } from './RevokeAdminDialog'
+import { EmergencyClinicalAccess } from './EmergencyClinicalAccess'
 
 type View = 'users' | 'cases' | 'audit'
 type UserRow = { id:string; full_name:string; email:string; active_mode:string; created_at:string }
@@ -33,6 +34,7 @@ export function PlatformWorkspace({ view, query }: { view:View; query:string }) 
   const [loadError,setLoadError] = useState<string|null>(null)
   const [roleRows, setRoleRows] = useState<RoleRow[]>(connected ? [] : [{ user_id: '1', role: 'patient' }, { user_id: '2', role: 'dentist' }, { user_id: '3', role: 'admin' }, { user_id: '3', role: 'patient' }])
   const [removal, setRemoval] = useState<AdminRemovalTarget | null>(null)
+  const [clinicalAccount, setClinicalAccount] = useState<UserRow | null>(null)
   const [notice, setNotice] = useState('')
   const [reload, setReload] = useState(0)
 
@@ -81,7 +83,8 @@ export function PlatformWorkspace({ view, query }: { view:View; query:string }) 
       <article><Gavel/><div><strong>{caseRows.filter((item) => item.status !== 'resolved').length}</strong><span>open cases</span></div></article>
       <article><CircleDollarSign/><div><strong>{usage.requests}</strong><span>AI requests · ${usage.cost.toFixed(2)}</span></div></article>
     </div>
-    {view === 'users' ? <section className="panel data-panel"><div className="panel-heading"><div><p className="eyebrow">IDENTITIES</p><h2>Users</h2></div><button className="secondary-button" onClick={() => { setNotice(''); setReload(value => value + 1) }}>Refresh users</button></div>{notice && <p role="status">{notice}</p>}<div className="data-table"><div className="data-head"><span>Name</span><span>Roles and mode</span><span>Created / access</span></div>{filteredUsers.map((row) => <article key={row.id}><span><strong>{row.full_name || 'Profile pending'}</strong><small>{row.email}</small></span><span><strong>{rolesFor(row.id)}</strong><small>{row.active_mode} mode</small></span><span><time>{new Date(row.created_at).toLocaleDateString()}</time>{canRemove(row.id) && <button className="text-button" aria-label={`Remove Admin access for ${row.email}`} onClick={() => setRemoval({ id: row.id, email: row.email })}>Remove Admin access</button>}</span></article>)}</div><p className="config-note">Roles are enforced on the server. New platform administrators must accept a Super Admin invitation.</p></section> : null}
+    {view === 'users' ? <section className="panel data-panel"><div className="panel-heading"><div><p className="eyebrow">IDENTITIES</p><h2>Users</h2></div><button className="secondary-button" onClick={() => { setNotice(''); setReload(value => value + 1) }}>Refresh users</button></div>{notice && <p role="status">{notice}</p>}<div className="data-table"><div className="data-head"><span>Name</span><span>Roles and mode</span><span>Created / access</span></div>{filteredUsers.map((row) => <article key={row.id}><span><strong>{row.full_name || 'Profile pending'}</strong><small>{row.email}</small></span><span><strong>{rolesFor(row.id)}</strong><small>{row.active_mode} mode</small></span><span><time>{new Date(row.created_at).toLocaleDateString()}</time><button className="text-button" aria-label={`Audited clinical access for ${row.email}`} onClick={() => setClinicalAccount(row)}>Audited clinical access</button>{canRemove(row.id) && <button className="text-button" aria-label={`Remove Admin access for ${row.email}`} onClick={() => setRemoval({ id: row.id, email: row.email })}>Remove Admin access</button>}</span></article>)}</div><p className="config-note">Roles are enforced on the server. New platform administrators must accept a Super Admin invitation.</p></section> : null}
+    {view === 'users' && clinicalAccount && <EmergencyClinicalAccess account={clinicalAccount} onClose={() => setClinicalAccount(null)} />}
     {removal && <RevokeAdminDialog target={removal} onClose={() => setRemoval(null)} onRemoved={preview => {
       setRoleRows(current => current.filter(role => !(role.user_id === removal.id && role.role === 'admin')))
       setRemoval(null)
