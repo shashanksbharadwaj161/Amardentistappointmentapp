@@ -10,6 +10,7 @@ import { Field } from '../../src/components/Field'
 import { Screen } from '../../src/components/Screen'
 import { SectionCard } from '../../src/components/SectionCard'
 import { openClinicalEncounter } from '../../src/lib/phase4'
+import { subscribeToAccessRefresh } from '../../src/lib/access-refresh'
 import { getAiFeatureFlags, reviewAiTask, runAiTask, type AiTaskResult } from '../../src/lib/phase6'
 import { useAuth } from '../../src/providers/AuthProvider'
 import { useLocale } from '../../src/providers/LocaleProvider'
@@ -21,7 +22,16 @@ export default function AiReviewScreen(){
   const queryClient=useQueryClient()
   const complete=useMemo(()=>Boolean(result)&&result!.requiredFields.every((field)=>reviewed[field]),[result,reviewed])
   useEffect(()=>{setResult(null);setValues({});setReviewed({});setMessage(null)},[taskType])
-  useEffect(()=>{void getAiFeatureFlags().then((flags)=>{setAiEnabled(flags.dentistAi);setXrayEnabled(flags.dentistAi&&flags.experimentalXrayAi)}).catch(()=>{setAiEnabled(false);setXrayEnabled(false)})},[])
+  useEffect(()=>{
+    let cancelled=false;let pending=false
+    const refresh=async()=>{
+      if(pending)return;pending=true
+      try{const flags=await getAiFeatureFlags();if(!cancelled){setAiEnabled(flags.dentistAi);setXrayEnabled(flags.dentistAi&&flags.experimentalXrayAi)}}
+      catch{if(!cancelled){setAiEnabled(false);setXrayEnabled(false)}}finally{pending=false}
+    }
+    void refresh();const stop=subscribeToAccessRefresh(()=>{void refresh()})
+    return()=>{cancelled=true;stop()}
+  },[profile?.id])
   if(!loading&&!profile)return<Redirect href="/"/>;if(!profile)return null
   const generate=async()=>{if(!aiEnabled)return setMessage(t('aiFeatureDisabled'));setBusy(true);setMessage(null);try{if(!appointmentId)throw new Error('ENCOUNTER_REQUIRED');const record=await openClinicalEncounter(appointmentId);const mediaTask=!['clinical_note','prescription'].includes(taskType);const media=mediaTask?record.media.find((item)=>taskType==='xray_observation'?item.kind==='xray':item.kind==='photograph'):null;const parsed=aiTaskRequestSchema.safeParse({taskType,encounterId:record.encounter.id,patientProfileId:null,mediaId:media?.id??null,input,locale});if(!parsed.success)return setMessage(mediaTask&&!media?t('aiMediaRequired'):t('aiDescribeMore'));const next=await runAiTask(parsed.data);setResult(next);setValues(Object.fromEntries(Object.entries(next.output).map(([key,value])=>[key,typeof value==='string'?value:JSON.stringify(value,null,2)])));setReviewed({})}catch(error){setMessage(error instanceof Error&&error.message==='AI_PROVIDER_NOT_CONFIGURED'?t('aiNotConfigured'):error instanceof Error&&error.message==='AI_FEATURE_DISABLED'?t('aiFeatureDisabled'):t('aiUnavailable'))}finally{setBusy(false)}}
   const accept=async()=>{if(!result||!complete)return;setBusy(true);setMessage(null);try{const finalOutput=Object.fromEntries(Object.entries(values).map(([key,value])=>{try{return[key,JSON.parse(value)]}catch{return[key,value]}}));const parsed=aiReviewSchema.parse({taskId:result.taskId,reviewedFields:reviewed,finalOutput,changeSummary:'Every required field reviewed by the treating dentist'});await reviewAiTask(parsed);if(appointmentId)await queryClient.invalidateQueries({queryKey:['clinical-encounter',appointmentId]});setMessage(t('aiDraftAccepted'));setResult(null)}catch{setMessage(t('aiUnavailable'))}finally{setBusy(false)}}

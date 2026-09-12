@@ -4,6 +4,9 @@ import AiReviewScreen from '../../app/professional/ai-review'
 import { getAiFeatureFlags, reviewAiTask, runAiTask } from '../lib/phase6'
 import { openClinicalEncounter } from '../lib/phase4'
 
+let mockRefreshAccess: () => void
+jest.mock('../lib/access-refresh', () => ({ subscribeToAccessRefresh: (refresh: () => void) => { mockRefreshAccess = refresh; return jest.fn() } }))
+
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }))
 jest.mock('expo-router', () => ({ Redirect: () => null, Stack: { Screen: () => null }, useLocalSearchParams: () => ({ appointmentId: 'appt1' }) }))
 jest.mock('../providers/AuthProvider', () => ({ useAuth: () => ({ profile: { id: '20000000-0000-4000-8000-000000000001' }, loading: false }) }))
@@ -18,6 +21,17 @@ beforeEach(() => {
   jest.mocked(openClinicalEncounter).mockResolvedValue({ encounter: { id: '11111111-1111-4111-8111-111111111111', appointmentId: 'appt1' }, media: [] } as never)
   jest.mocked(runAiTask).mockResolvedValue({ taskId: '22222222-2222-4222-8222-222222222222', status: 'awaiting_review', requiredFields: ['subjective', 'objective', 'assessment', 'plan'], output: { subjective: 's', objective: 'o', assessment: 'a', plan: 'p' } })
   jest.mocked(reviewAiTask).mockResolvedValue(undefined)
+})
+
+it('refreshes feature controls without discarding the current clinical input', async () => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+  await act(async () => { render(<QueryClientProvider client={client}><AiReviewScreen /></QueryClientProvider>) })
+  await fireEvent.changeText(screen.getByLabelText('aiClinicalContext'), 'Unsaved clinical context')
+  jest.mocked(getAiFeatureFlags).mockResolvedValue({ dentistAi: false, patientAi: true, experimentalXrayAi: false })
+  await act(async () => { mockRefreshAccess() })
+  expect(screen.getByDisplayValue('Unsaved clinical context')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'aiGenerateDraft' })).toBeDisabled()
+  expect(screen.getByText('aiFeatureDisabled')).toBeTruthy()
 })
 
 it('keeps AI output a draft and invalidates the encounter query on accept so the encounter cannot show stale notes', async () => {

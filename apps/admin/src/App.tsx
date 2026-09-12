@@ -89,6 +89,7 @@ function Console({ identity, onSignOut }: { identity: AdminIdentity; onSignOut: 
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const inviteButtonRef = useRef<HTMLButtonElement>(null)
   const isSuperAdmin = identity.roles.includes('super_admin')
+  const visibleNav = nav.filter(({ id }) => isSuperAdmin || ['overview', 'verification', 'cases'].includes(id))
   const activeView = isSuperAdmin || ['overview', 'verification', 'cases'].includes(requestedView) ? requestedView : 'overview'
 
   useEffect(() => {
@@ -131,7 +132,7 @@ function Console({ identity, onSignOut }: { identity: AdminIdentity; onSignOut: 
     <div className="console">
       <aside ref={sidebarRef} id="admin-navigation" role={mobileNavigation ? 'dialog' : undefined} aria-label={mobileNavigation ? 'Navigation menu' : undefined} className={menuOpen ? 'sidebar sidebar-open' : 'sidebar'} aria-hidden={mobileNavigation && !menuOpen} inert={mobileNavigation && !menuOpen ? true : undefined} aria-modal={mobileNavigation && menuOpen ? true : undefined} tabIndex={mobileNavigation ? -1 : undefined} onKeyDown={containNavigationFocus}>
         <div className="sidebar-top"><Brand /><button className="icon-button close-menu" type="button" aria-label="Close navigation" onClick={closeMenu}><X /></button></div>
-        <nav aria-label="Primary navigation">{nav.map(({ id, label, icon: Icon }) => { const enabled = id === 'overview' || id === 'verification' || id === 'cases' || (isSuperAdmin && Boolean(id)); const active = activeView === id; return <button key={label} className={active ? 'nav-item nav-active' : 'nav-item'} type="button" aria-current={active ? 'page' : undefined} disabled={!enabled} title={!enabled ? `${label} requires Super Admin access` : undefined} onClick={() => { if (enabled && id) { setActiveView(id as typeof activeView); closeMenu() } }}><Icon /><span>{label}</span></button> })}</nav>
+        <nav aria-label="Primary navigation">{visibleNav.map(({ id, label, icon: Icon }) => { const enabled = id === 'overview' || id === 'verification' || id === 'cases' || (isSuperAdmin && Boolean(id)); const active = activeView === id; return <button key={label} className={active ? 'nav-item nav-active' : 'nav-item'} type="button" aria-current={active ? 'page' : undefined} disabled={!enabled} onClick={() => { if (enabled && id) { setActiveView(id as typeof activeView); closeMenu() } }}><Icon /><span>{label}</span></button> })}</nav>
         <div className="sidebar-foot"><div className="role-lock"><ShieldCheck /><div><strong>{isSuperAdmin ? 'Super Admin' : 'Admin'}</strong><span>{isSuperAdmin ? 'Full platform oversight' : 'Scoped platform oversight'}</span></div></div><button className="nav-item" type="button" onClick={onSignOut}><LogOut /><span>Sign out</span></button></div>
       </aside>
       <div className="workspace" inert={mobileNavigation && menuOpen ? true : undefined}>
@@ -161,11 +162,13 @@ export default function App() {
   const [passwordSetup, setPasswordSetup] = useState(false)
   const setupIntent = useRef<'invite' | 'recovery' | null>(adminPasswordCallbackIntent)
   const authGeneration = useRef(0)
+  const currentSession = useRef<Session | null>(null)
 
   useEffect(() => {
     if (!supabase) return
     const client = supabase
     let cancelled = false
+    let refreshing = false
     const settle = async (next: Session | null, generation: number) => {
       try {
         const resolved = next ? await resolveIdentity(next) : null
@@ -182,12 +185,14 @@ export default function App() {
     void client.auth.getSession().then(({ data, error }) => {
       if (cancelled || initialGeneration !== authGeneration.current) return
       if (error) throw new Error('SESSION_FAILED')
+      currentSession.current = data.session
       return settle(data.session, initialGeneration)
     }).catch(() => {
       if (cancelled || initialGeneration !== authGeneration.current) return
       setIdentity(null); setLoading(false); setAuthError('Secure access could not be verified. Check your connection, then sign in again.')
     })
     const { data } = client.auth.onAuthStateChange((event, next) => {
+      currentSession.current = next
       const generation = ++authGeneration.current
       if (event === 'PASSWORD_RECOVERY') setupIntent.current = 'recovery'
       if (event === 'SIGNED_OUT') setupIntent.current = null
@@ -197,11 +202,25 @@ export default function App() {
       }
       queueMicrotask(() => { if (!cancelled && generation === authGeneration.current) void settle(next, generation) })
     })
-    return () => { cancelled = true; data.subscription.unsubscribe() }
+    const refresh = async () => {
+      if (cancelled || refreshing || !currentSession.current || document.visibilityState === 'hidden') return
+      refreshing = true
+      const generation = ++authGeneration.current
+      try { await settle(currentSession.current, generation) }
+      finally { refreshing = false }
+    }
+    const timer = window.setInterval(() => void refresh(), 30_000)
+    const onFocus = () => { void refresh() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onFocus)
+    return () => {
+      cancelled = true; data.subscription.unsubscribe(); window.clearInterval(timer)
+      window.removeEventListener('focus', onFocus); document.removeEventListener('visibilitychange', onFocus)
+    }
   }, [])
 
   const signOut = async () => {
-    ++authGeneration.current; setupIntent.current = null
+    ++authGeneration.current; setupIntent.current = null; currentSession.current = null
     setIdentity(null); setDenied(false); setPasswordSetup(false); setAuthError(''); setLoading(false)
     try {
       if (supabase) { const result = await supabase.auth.signOut(); if (result.error) throw new Error('SIGN_OUT_FAILED') }

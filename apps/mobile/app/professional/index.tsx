@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { Redirect, router, Stack } from 'expo-router'
 import { Building2, CalendarCheck2, CalendarDays, ChevronRight, CircleDollarSign, FileBadge2, LockKeyhole, UserCheck, UsersRound } from 'lucide-react-native'
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native'
@@ -7,6 +8,7 @@ import { Screen } from '../../src/components/Screen'
 import { SectionCard } from '../../src/components/SectionCard'
 import { StatusPill } from '../../src/components/StatusPill'
 import { acceptClinicMembership, getProfessionalOverview } from '../../src/lib/phase2'
+import { subscribeToAccessRefresh } from '../../src/lib/access-refresh'
 import { useAuth } from '../../src/providers/AuthProvider'
 import { useLocale } from '../../src/providers/LocaleProvider'
 import { colors, hitTarget, radius, spacing } from '../../src/theme'
@@ -19,6 +21,8 @@ export default function ProfessionalHomeScreen() {
     queryFn: () => getProfessionalOverview(profile!.id),
     enabled: Boolean(profile),
   })
+  const refetchOverview = overview.refetch
+  useEffect(() => profile ? subscribeToAccessRefresh(() => { void refetchOverview() }) : undefined, [profile?.id, refetchOverview])
   if (!loading && !profile) return <Redirect href="/" />
   if (!profile) return null
 

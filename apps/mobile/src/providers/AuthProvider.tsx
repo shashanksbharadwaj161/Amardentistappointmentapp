@@ -1,10 +1,12 @@
 import type { AppMode, AppRole, Profile } from '@amar-dentist/domain'
 import type { Session } from '@supabase/supabase-js'
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type PropsWithChildren } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type PropsWithChildren } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import * as Linking from 'expo-linking'
 import { Platform } from 'react-native'
 import { parseAuthLink } from '../lib/auth-links'
 import { isSupabaseConfigured, supabase } from '../lib/supabase'
+import { subscribeToAccessRefresh } from '../lib/access-refresh'
 
 type AuthContextValue = {
   session: Session | null
@@ -33,11 +35,11 @@ function authRedirect(path: 'auth/callback' | 'reset-password') {
 
 async function loadProfile(userId: string): Promise<Profile | null> {
   if (!supabase) return null
-  const [{ data: profile }, { data: roles }] = await Promise.all([
+  const [{ data: profile, error: profileError }, { data: roles, error: rolesError }] = await Promise.all([
     supabase.from('profiles').select('id,email,full_name,locale,active_mode').eq('id', userId).single(),
     supabase.from('user_roles').select('role').eq('user_id', userId),
   ])
-  if (!profile) return null
+  if (profileError || rolesError || !profile || !roles) throw new Error('PROFILE_UNAVAILABLE')
   return {
     id: profile.id,
     email: profile.email,
@@ -49,6 +51,11 @@ async function loadProfile(userId: string): Promise<Profile | null> {
 }
 
 export function AuthProvider({ children }: PropsWithChildren) {
+  const queryClient = useQueryClient()
+  const generation = useRef(0)
+  const actor = useRef<string | null>(null)
+  const currentSession = useRef<Session | null>(null)
+  const verifiedRoles = useRef<AppRole[]>([])
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
@@ -61,11 +68,37 @@ export function AuthProvider({ children }: PropsWithChildren) {
       setLoading(false)
       return
     }
-    void client.auth.getSession().then(async ({ data }) => {
-      setSession(data.session)
-      setProfile(data.session ? await loadProfile(data.session.user.id) : null)
-      setLoading(false)
-    })
+    let cancelled = false
+    let refreshing = false
+    const settle = async (next: Session | null, ticket: number) => {
+      try {
+        const nextProfile = next ? await loadProfile(next.user.id) : null
+        if (cancelled || ticket !== generation.current) return
+        if (verifiedRoles.current.some(role => !nextProfile?.roles.includes(role))) queryClient.clear()
+        verifiedRoles.current = nextProfile?.roles ?? []
+        setProfile(nextProfile)
+      } catch {
+        if (cancelled || ticket !== generation.current) return
+        verifiedRoles.current = []; setProfile(null); queryClient.clear()
+      } finally { if (!cancelled && ticket === generation.current) setLoading(false) }
+    }
+    const receive = (next: Session | null) => {
+      const ticket = ++generation.current
+      currentSession.current = next
+      const nextActor = next?.user.id ?? null
+      if (actor.current !== nextActor || !next) {
+        if (!next || actor.current !== null) { setRecoveringPassword(false); setPasswordSetupMode(null) }
+        actor.current = nextActor
+        verifiedRoles.current = []; setProfile(null); queryClient.clear(); setLoading(Boolean(next))
+      }
+      setSession(next)
+      queueMicrotask(() => { if (!cancelled && ticket === generation.current) void settle(next, ticket) })
+    }
+    const initialTicket = generation.current
+    void client.auth.getSession().then(({ data, error }) => {
+      if (cancelled || initialTicket !== generation.current) return
+      receive(error ? null : data.session)
+    }).catch(() => { if (!cancelled && initialTicket === generation.current) receive(null) })
     const handleRecoveryUrl = async (url: string | null) => {
       if (!url) return
       const parsed = parseAuthLink(url)
@@ -81,18 +114,24 @@ export function AuthProvider({ children }: PropsWithChildren) {
     void Linking.getInitialURL().then(handleRecoveryUrl)
     const linkSubscription = Linking.addEventListener('url', ({ url }) => { void handleRecoveryUrl(url) })
     const { data } = client.auth.onAuthStateChange((event, nextSession) => {
+      receive(nextSession)
       if (event === 'PASSWORD_RECOVERY') {
         setRecoveringPassword(true)
         setPasswordSetupMode('recovery')
       }
-      setSession(nextSession)
-      void (nextSession ? loadProfile(nextSession.user.id).then(setProfile) : Promise.resolve(setProfile(null)))
+    })
+    const stopRefresh = subscribeToAccessRefresh(() => {
+      if (cancelled || refreshing || !currentSession.current) return
+      refreshing = true
+      const ticket = ++generation.current
+      void settle(currentSession.current, ticket).finally(() => { refreshing = false })
     })
     return () => {
+      cancelled = true; ++generation.current; stopRefresh()
       data.subscription.unsubscribe()
       linkSubscription.remove()
     }
-  }, [])
+  }, [queryClient])
 
   const signIn = useCallback(async (email: string, password: string) => {
     if (!supabase) return 'Connect Supabase to sign in.'
@@ -128,10 +167,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [])
 
   const signOut = useCallback(async () => {
-    if (supabase) await supabase.auth.signOut()
-    setSession(null)
-    setProfile(null)
-  }, [])
+    ++generation.current; actor.current = null; currentSession.current = null; queryClient.clear()
+    verifiedRoles.current = []; setSession(null); setProfile(null); setLoading(false)
+    setRecoveringPassword(false); setPasswordSetupMode(null)
+    if (supabase) {
+      const { error } = await supabase.auth.signOut()
+      if (error) throw new Error('Sign-out could not be confirmed. Please retry when connected.')
+    }
+  }, [queryClient])
 
   const setMode = useCallback(async (mode: AppMode) => {
     if (!profile) return 'A connected account is required.'
@@ -140,9 +183,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
       return null
     }
     if (!supabase) return 'A connected account is required.'
+    const ticket = ++generation.current
     const { error } = await supabase.rpc('set_active_mode', { requested_mode: mode })
     if (error) return error.message
-    setProfile({ ...profile, activeMode: mode })
+    if (ticket === generation.current && actor.current === profile.id) setProfile({ ...profile, activeMode: mode })
     return null
   }, [profile])
 

@@ -26,8 +26,8 @@ describe('admin access shell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Preview operational Admin' }))
     expect(screen.getByRole('button', { name: 'Verification' })).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Cases' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: 'AI provider' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Admin invitations' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'AI provider' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Admin invitations' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Invite admin' })).not.toBeInTheDocument()
   })
 

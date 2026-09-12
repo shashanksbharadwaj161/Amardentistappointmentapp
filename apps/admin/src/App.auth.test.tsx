@@ -39,7 +39,7 @@ beforeEach(() => {
   })
   Object.defineProperty(window, 'matchMedia', { writable: true, value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })) })
 })
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.useRealTimers() })
 
 it('requires verified auth and database roles before entering the console', async () => {
   render(<App />)
@@ -93,7 +93,7 @@ it('closes privileged content immediately when roles downgrade', async () => {
   act(() => mocks.listener('TOKEN_REFRESHED', session))
   expect(screen.queryByText('Protected AI settings')).not.toBeInTheDocument()
   await screen.findByText('Verified overview')
-  expect(screen.getByRole('button', { name: 'AI provider' })).toBeDisabled()
+  expect(screen.queryByRole('button', { name: 'AI provider' })).not.toBeInTheDocument()
 })
 
 it('does not let stale identity promises restore access after sign-out', async () => {
@@ -105,4 +105,35 @@ it('does not let stale identity promises restore access after sign-out', async (
   await screen.findByRole('heading', { name: 'Sign in' })
   await act(async () => finishVerification({ data: { user }, error: null }))
   expect(screen.queryByText('Verified overview')).not.toBeInTheDocument()
+})
+
+it('reconciles a database-only role downgrade on focus without an auth event', async () => {
+  render(<App />)
+  await screen.findByText('Verified overview')
+  fireEvent.click(screen.getByRole('button', { name: 'AI provider' }))
+  mocks.roles = ['admin']
+  fireEvent(window, new Event('focus'))
+  await waitFor(() => expect(screen.queryByText('Protected AI settings')).not.toBeInTheDocument())
+  for (const name of ['AI provider', 'Usage limits', 'Users', 'Audit trail', 'Configuration', 'Admin invitations']) {
+    expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+  }
+})
+
+it('polls current roles and retains the mounted workspace when access is unchanged', async () => {
+  render(<App />)
+  await screen.findByText('Verified overview')
+  fireEvent.click(screen.getByRole('button', { name: 'AI provider' }))
+  const workspace = screen.getByText('Protected AI settings')
+  fireEvent(window, new Event('focus'))
+  await waitFor(() => expect(mocks.getUser).toHaveBeenCalledTimes(2))
+  expect(screen.getByText('Protected AI settings')).toBe(workspace)
+})
+
+it('revokes an open console at the next periodic reconciliation', async () => {
+  vi.useFakeTimers()
+  await act(async () => { render(<App />) })
+  expect(screen.getByText('Verified overview')).toBeInTheDocument()
+  mocks.roles = ['patient']
+  await act(async () => { await vi.advanceTimersByTimeAsync(30_000) })
+  expect(screen.getByRole('heading', { name: 'This account cannot open the admin console.' })).toBeInTheDocument()
 })
