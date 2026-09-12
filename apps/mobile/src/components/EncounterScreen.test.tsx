@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ClinicalEncounterScreen, { clinicalEncounterQueryKey, isPrescriptionFinalized, prescribingSafetyQueryKey, reconcileEncounterNotes } from '../../app/professional/encounter'
-import { finalizeEncounter, finalizePrescription, getPrescribingSafetyContext, openClinicalEncounter, saveAndFinalizeEncounter, saveEncounter } from '../lib/phase4'
+import * as DocumentPicker from 'expo-document-picker'
+import { Linking } from 'react-native'
+import { finalizeEncounter, finalizePrescription, getClinicalMediaDownloadUrl, getPrescribingSafetyContext, openClinicalEncounter, saveAndFinalizeEncounter, saveEncounter, uploadClinicalMedia } from '../lib/phase4'
 
 // Mutable auth/route state so tests can revoke the dentist role or switch actor/appointment and rerender.
 const mockAuth: { profile: { id: string; roles: string[] } | null; loading: boolean } = { profile: { id: '20000000-0000-4000-8000-000000000001', roles: ['dentist'] }, loading: false }
@@ -21,7 +23,7 @@ jest.mock('../lib/phase4', () => ({
 
 const item = { id: 'i1', medicineName: 'Amoxicillin', strength: '500 mg', dosage: '1 capsule', route: 'oral', frequency: 'Every 8 hours', duration: '5 days', instructions: '' }
 const baseEncounter = { id: '11111111-1111-4111-8111-111111111111', appointmentId: 'appt1', chiefComplaint: '', subjectiveNotes: '', objectiveNotes: '', assessment: '', plan: '', finalizedAt: null }
-function bundle(overrides: { encounter?: Record<string, unknown>; prescriptions?: unknown[] } = {}) {
+function bundle(overrides: { encounter?: Record<string, unknown>; prescriptions?: unknown[]; media?: unknown[] } = {}) {
   const { encounter, ...rest } = overrides
   return { encounter: { ...baseEncounter, status: 'draft', ...encounter }, diagnoses: [], teeth: [], prescriptions: [], treatmentPlans: [], media: [], ...rest }
 }
@@ -40,7 +42,7 @@ beforeEach(() => {
 it('gives an existing draft prescription an explicit dentist-only finalize control that finalizes it', async () => {
   jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ prescriptions: [{ id: 'rx1', status: 'draft', finalizedAt: null, instructions: '', documentPath: null, items: [item] }] }) as never)
   jest.mocked(finalizePrescription).mockResolvedValue(undefined)
-  show()
+  await show()
   await waitFor(() => expect(screen.getByText(/Amoxicillin/)).toBeTruthy())
   // Two finalize controls exist: the existing draft's, plus the manual single-item add form.
   const buttons = screen.getAllByRole('button', { name: 'finalizePrescription' })
@@ -51,7 +53,7 @@ it('gives an existing draft prescription an explicit dentist-only finalize contr
 
 it('shows a finalized prescription as finalized and offers no finalize control once the encounter is finalized', async () => {
   jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: { status: 'finalized' }, prescriptions: [{ id: 'rx2', status: 'finalized', finalizedAt: '2026-09-10T00:00:00Z', instructions: '', documentPath: null, items: [item] }] }) as never)
-  show()
+  await show()
   await waitFor(() => expect(screen.getByText(/Amoxicillin/)).toBeTruthy())
   expect(screen.queryAllByRole('button', { name: 'finalizePrescription' }).length).toBe(0)
   expect(screen.getAllByText('finalizedRecord').length).toBeGreaterThan(0)
@@ -62,7 +64,7 @@ async function conflictReady(client: QueryClient) {
     .mockResolvedValueOnce(bundle({ encounter: { assessment: 'orig' } }) as never)
     .mockResolvedValue(bundle({ encounter: { assessment: 'AI updated' } }) as never)
   jest.mocked(saveEncounter).mockResolvedValue(undefined)
-  render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+  await render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
   await waitFor(() => expect(screen.getByDisplayValue('orig')).toBeTruthy())
   await fireEvent.changeText(screen.getByLabelText('assessment'), 'my edit')
   await act(async () => { await client.invalidateQueries({ queryKey: ['clinical-encounter', 'appt1'] }) })
@@ -131,7 +133,7 @@ it('does not clear a conflict when pre-finalize refetch and its effect apply the
     .mockResolvedValue(bundle({ encounter: { assessment: 'AI updated' } }) as never)
   jest.mocked(saveEncounter).mockResolvedValue(undefined)
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
-  render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+  await render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
   await waitFor(() => expect(screen.getByDisplayValue('orig')).toBeTruthy())
   await fireEvent.changeText(screen.getByLabelText('assessment'), 'my edit')
   await fireEvent.press(screen.getByRole('button', { name: /finalizeEncounter/ }))
@@ -151,7 +153,7 @@ it('uses the submitted snapshot as save baseline and preserves edits made while 
   jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: { assessment: 'orig' } }) as never)
   let finishSave!: () => void
   jest.mocked(saveEncounter).mockImplementation(() => new Promise<void>(resolve => { finishSave = resolve }))
-  show()
+  await show()
   await waitFor(() => expect(screen.getByDisplayValue('orig')).toBeTruthy())
   await fireEvent.changeText(screen.getByLabelText('assessment'), 'submitted note')
   await fireEvent.press(screen.getByRole('button', { name: 'saveDraft' }))
@@ -170,7 +172,7 @@ it('blocks finalizing when the pre-finalize refresh fails, so stale notes are no
     .mockResolvedValueOnce(bundle({ encounter: { assessment: 'orig' } }) as never)
     .mockRejectedValue(new Error('network'))
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
-  render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+  await render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
   await waitFor(() => expect(screen.getByDisplayValue('orig')).toBeTruthy())
   await fireEvent.press(screen.getByRole('button', { name: /finalizeEncounter/ }))
   await waitFor(() => expect(screen.getByText('refreshFailedStale')).toBeTruthy())
@@ -182,7 +184,7 @@ it('blocks finalizing when the pre-finalize refresh fails, so stale notes are no
 it('finalizes with one atomic request using fresh server expectations rather than merged local notes', async () => {
   const server = { chiefComplaint: 'original complaint', objectiveNotes: 'exam', assessment: 'assessment', plan: 'plan' }
   jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: server }) as never)
-  show()
+  await show()
   await waitFor(() => expect(screen.getByDisplayValue('original complaint')).toBeTruthy())
   await fireEvent.changeText(screen.getByLabelText('chiefComplaint'), 'local complaint')
   await fireEvent.press(screen.getByRole('button', { name: /finalizeEncounter/ }))
@@ -197,7 +199,7 @@ it('finalizes with one atomic request using fresh server expectations rather tha
 it('preserves the edited draft and reports stale state when the atomic request detects a changed record', async () => {
   jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: { chiefComplaint: 'original', objectiveNotes: 'exam', assessment: 'assessment', plan: 'plan' } }) as never)
   jest.mocked(saveAndFinalizeEncounter).mockRejectedValue(new Error('CLINICAL_RECORD_CHANGED'))
-  show()
+  await show()
   await waitFor(() => expect(screen.getByDisplayValue('original')).toBeTruthy())
   await fireEvent.changeText(screen.getByLabelText('chiefComplaint'), 'unsaved dentist edit')
   await fireEvent.press(screen.getByRole('button', { name: /finalizeEncounter/ }))
@@ -241,7 +243,7 @@ describe('prescribing safety context', () => {
   it('shows recorded allergies and the confirm reminder above prescribing', async () => {
     jest.mocked(openClinicalEncounter).mockResolvedValue(withPatient() as never)
     jest.mocked(getPrescribingSafetyContext).mockResolvedValue({ historyRecorded: true, allergies: [{ id: 'a1', allergen: 'Penicillin', reaction: 'Rash', severity: 'moderate', active: true }], currentMedications: ['Warfarin'] })
-    show()
+    await show()
     await waitFor(() => expect(screen.getByText(/Penicillin/)).toBeTruthy())
     expect(screen.getByText('Penicillin · Rash · moderate')).toBeTruthy()
     expect(screen.getByText('Warfarin')).toBeTruthy()
@@ -250,7 +252,7 @@ describe('prescribing safety context', () => {
   it('never implies no known allergies when the record is empty or access is denied', async () => {
     jest.mocked(openClinicalEncounter).mockResolvedValue(withPatient() as never)
     jest.mocked(getPrescribingSafetyContext).mockResolvedValue({ historyRecorded: false, allergies: [], currentMedications: [] })
-    show()
+    await show()
     await waitFor(() => expect(screen.getByText('rxSafetyNoAllergiesOnFile')).toBeTruthy())
     expect(screen.getByText('rxSafetyNoMedicationsOnFile')).toBeTruthy()
     expect(screen.getByText('rxSafetyConfirm')).toBeTruthy()
@@ -258,7 +260,7 @@ describe('prescribing safety context', () => {
   it('surfaces an explicit unavailable warning when the safety read errors', async () => {
     jest.mocked(openClinicalEncounter).mockResolvedValue(withPatient() as never)
     jest.mocked(getPrescribingSafetyContext).mockRejectedValue(new Error('denied'))
-    show()
+    await show()
     await waitFor(() => expect(screen.getByText('rxSafetyUnavailable')).toBeTruthy())
     expect(screen.getByText('rxSafetyConfirm')).toBeTruthy()
   })
@@ -268,7 +270,7 @@ describe('prescribing safety context', () => {
     // key ('moderate') rather than a hardcoded English word; phase4 tests assert the real EN/BN values.
     jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ encounter: { patientProfileId: '00000000-0000-4000-8000-000000000001' } }) as never)
     jest.mocked(getPrescribingSafetyContext).mockResolvedValue({ historyRecorded: true, allergies: [{ id: 'a1', allergen: 'Penicillin', reaction: 'Rash', severity: 'moderate', active: true }], currentMedications: [] })
-    show()
+    await show()
     await waitFor(() => expect(screen.getByText('Penicillin · Rash · moderate')).toBeTruthy())
   })
 
@@ -280,7 +282,7 @@ describe('prescribing safety context', () => {
       ? { historyRecorded: true, allergies: [{ id: 'a', allergen: 'Penicillin', reaction: 'Rash', severity: 'moderate', active: true }], currentMedications: [] }
       : { historyRecorded: true, allergies: [{ id: 'b', allergen: 'Latex', reaction: 'Hives', severity: 'mild', active: true }], currentMedications: [] })
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
-    render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
     await waitFor(() => expect(screen.getByText(/Penicillin/)).toBeTruthy())
     await act(async () => { await client.invalidateQueries({ queryKey: ['clinical-encounter'] }) })
     await waitFor(() => expect(screen.getByText(/Latex/)).toBeTruthy())
@@ -342,7 +344,7 @@ describe('clinical editor is gated by dentist role and unmounts local state on a
   it('preserves unsaved edits across a refresh when actor, appointment and permissions are unchanged', async () => {
     jest.mocked(openClinicalEncounter).mockResolvedValue(draft() as never)
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
-    render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
     await waitFor(() => expect(screen.getByLabelText('assessment')).toBeTruthy())
     await fireEvent.changeText(screen.getByLabelText('assessment'), 'kept across poll')
     await act(async () => { await client.invalidateQueries({ queryKey: ['clinical-encounter'] }) })
@@ -363,5 +365,39 @@ describe('clinical editor is gated by dentist role and unmounts local state on a
     await view.rerender(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
     await act(async () => { resolveRefetch(draft()); await Promise.resolve() })
     expect(saveAndFinalizeEncounter).not.toHaveBeenCalled()
+  })
+})
+
+describe('clinical media actions abort when access is lost mid-flight', () => {
+  const draft = () => bundle({ encounter: { patientProfileId: '00000000-0000-4000-8000-000000000001' } })
+
+  it('does not upload picked media after the dentist role is revoked while the picker is open', async () => {
+    jest.mocked(openClinicalEncounter).mockResolvedValue(draft() as never)
+    let resolvePick: (value: unknown) => void = () => {}
+    jest.mocked(DocumentPicker.getDocumentAsync).mockImplementationOnce(() => new Promise((resolve) => { resolvePick = resolve as unknown as typeof resolvePick }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    const view = await render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'attachClinicalMedia' })).toBeTruthy())
+    await fireEvent.press(screen.getByRole('button', { name: 'attachClinicalMedia' }))
+    mockAuth.profile = { id: '20000000-0000-4000-8000-000000000001', roles: [] }
+    await view.rerender(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await act(async () => { resolvePick({ canceled: false, assets: [{ uri: 'file://x.jpg', name: 'x.jpg', mimeType: 'image/jpeg', size: 10 }] }); await Promise.resolve() })
+    expect(uploadClinicalMedia).not.toHaveBeenCalled()
+  })
+
+  it('does not open a signed media URL after the dentist role is revoked while it is being fetched', async () => {
+    jest.mocked(openClinicalEncounter).mockResolvedValue(bundle({ media: [{ id: 'm1', kind: 'photograph', storagePath: 'p/1.jpg', filename: '1.jpg', contentType: 'image/jpeg', caption: 'Intraoral', finalizedAt: null }] }) as never)
+    const openUrl = jest.spyOn(Linking, 'openURL').mockResolvedValue(true as never)
+    let resolveUrl: (value: unknown) => void = () => {}
+    jest.mocked(getClinicalMediaDownloadUrl).mockImplementationOnce(() => new Promise((resolve) => { resolveUrl = resolve as unknown as typeof resolveUrl }))
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
+    const view = await render(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'viewClinicalMedia' })).toBeTruthy())
+    await fireEvent.press(screen.getByRole('button', { name: 'viewClinicalMedia' }))
+    mockAuth.profile = { id: '20000000-0000-4000-8000-000000000001', roles: [] }
+    await view.rerender(<QueryClientProvider client={client}><ClinicalEncounterScreen /></QueryClientProvider>)
+    await act(async () => { resolveUrl('https://signed.example/clinical/1.jpg'); await Promise.resolve() })
+    expect(openUrl).not.toHaveBeenCalled()
+    openUrl.mockRestore()
   })
 })

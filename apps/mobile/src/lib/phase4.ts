@@ -200,17 +200,28 @@ export async function addPatientAllergy(input: AllergyInput): Promise<string> {
   return data as string
 }
 
-export async function createAndFinalizeTreatmentPlan(input: TreatmentPlanInput): Promise<string> {
+// `isValid` lets the caller (the clinical editor) abort the chain if the acting editor is no longer
+// valid — role revoked, or account/appointment switched — between the create and finalize steps. It
+// defaults to always-valid so existing callers are unchanged. Validity is checked after the create
+// await and before the finalize mutation, so an old/unauthorized editor cannot finalize a plan.
+export async function createAndFinalizeTreatmentPlan(input: TreatmentPlanInput, isValid: () => boolean = () => true): Promise<string> {
   if (!supabase || previewEnabled) return id()
   const { data, error } = await supabase.rpc('create_treatment_plan', { target_encounter_id: input.encounterId, plan_title: input.title, plan_notes: input.notes, items: input.items })
   if (error) throw new Error(error.message)
   const treatmentPlanId = data as string
+  // The create already committed; we do not fabricate a rollback of it. We only decline to finalize,
+  // leaving an unfinalized draft plan (not patient-visible) when the editor is no longer valid.
+  if (!isValid()) return treatmentPlanId
   const { error: finalizeError } = await supabase.rpc('finalize_treatment_plan', { target_treatment_plan_id: treatmentPlanId, change_reason: 'Treatment plan reviewed and finalized' })
   if (finalizeError) throw new Error(finalizeError.message)
   return treatmentPlanId
 }
 
-export async function uploadClinicalMedia(encounterId: string, kind: 'photograph' | 'xray', asset: { uri: string; name: string; mimeType?: string; size?: number }, caption: string): Promise<string> {
+// `isValid` lets the caller abort if the acting editor becomes invalid (role revoked, account/
+// appointment switched) mid-chain. It defaults to always-valid so existing callers are unchanged.
+// Validity is checked after the prepare waits (before the storage write) and again before the
+// register mutation, so clinical media is never stored or registered for an old/unauthorized editor.
+export async function uploadClinicalMedia(encounterId: string, kind: 'photograph' | 'xray', asset: { uri: string; name: string; mimeType?: string; size?: number }, caption: string, isValid: () => boolean = () => true): Promise<string> {
   if (!supabase || previewEnabled) return id()
   const { data: userResult, error: userError } = await supabase.auth.getUser()
   if (userError || !userResult.user) throw new Error(userError?.message ?? 'AUTH_REQUIRED')
@@ -220,8 +231,18 @@ export async function uploadClinicalMedia(encounterId: string, kind: 'photograph
   if (!response.ok) throw new Error('CLINICAL_MEDIA_READ_FAILED')
   const body = await response.blob()
   const contentType = asset.mimeType ?? body.type ?? 'application/octet-stream'
+  // Abort before writing anything to storage if the editor is no longer valid: nothing has been
+  // written yet, so no cleanup is required.
+  if (!isValid()) throw new Error('CLINICAL_MEDIA_ABORTED')
   const { error: uploadError } = await supabase.storage.from('clinical-media').upload(objectPath, body, { contentType, upsert: false })
   if (uploadError) throw new Error(uploadError.message)
+  // If access was lost during the storage upload, do not register the media row. Attempt best-effort
+  // removal of the just-uploaded object; storage removal can itself fail, so an orphaned object may
+  // remain — a partial-upload cleanup concern that server-side storage lifecycle rules must also cover.
+  if (!isValid()) {
+    await supabase.storage.from('clinical-media').remove([objectPath])
+    throw new Error('CLINICAL_MEDIA_ABORTED')
+  }
   const { data, error } = await supabase.rpc('register_clinical_media', { target_encounter_id: encounterId, media_kind: kind, object_path: objectPath, original_filename: asset.name, mime_type: contentType, content_size: asset.size ?? body.size, media_caption: caption })
   if (error) {
     await supabase.storage.from('clinical-media').remove([objectPath])

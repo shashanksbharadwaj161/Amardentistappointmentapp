@@ -5,10 +5,14 @@ const mockDb: {
   history: { data: unknown; error: unknown }
   allergies: { data: unknown; error: unknown }
   calls: { history: Array<[string, unknown]>; allergies: Array<[string, unknown]> }
+  rpcCalls: Array<[string, unknown]>
+  createResult: Promise<{ data: unknown; error: unknown }>
 } = {
   history: { data: { current_medications: [] }, error: null },
   allergies: { data: [], error: null },
   calls: { history: [], allergies: [] },
+  rpcCalls: [],
+  createResult: Promise.resolve({ data: 'plan-1', error: null }),
 }
 
 jest.mock('./supabase', () => ({
@@ -32,10 +36,15 @@ jest.mock('./supabase', () => ({
       }
       throw new Error(`unexpected table ${table}`)
     },
+    rpc: (name: string, args: unknown) => {
+      mockDb.rpcCalls.push([name, args])
+      if (name === 'create_treatment_plan') return mockDb.createResult
+      return Promise.resolve({ data: 'ok', error: null })
+    },
   },
 }))
 
-import { getPrescribingSafetyContext } from './phase4'
+import { createAndFinalizeTreatmentPlan, getPrescribingSafetyContext } from './phase4'
 
 const patientId = '00000000-0000-4000-8000-000000000001'
 
@@ -43,6 +52,8 @@ beforeEach(() => {
   mockDb.history = { data: { current_medications: [] }, error: null }
   mockDb.allergies = { data: [], error: null }
   mockDb.calls = { history: [], allergies: [] }
+  mockDb.rpcCalls = []
+  mockDb.createResult = Promise.resolve({ data: 'plan-1', error: null })
 })
 
 describe('getPrescribingSafetyContext (connected query)', () => {
@@ -84,5 +95,29 @@ describe('getPrescribingSafetyContext (connected query)', () => {
     expect(mockDb.calls.allergies).toContainEqual(['patient_profile_id', 'patient-B'])
     expect(mockDb.calls.history).toContainEqual(['patient_profile_id', 'patient-A'])
     expect(mockDb.calls.history).toContainEqual(['patient_profile_id', 'patient-B'])
+  })
+})
+
+describe('createAndFinalizeTreatmentPlan (connected) honours editor validity', () => {
+  it('creates but does not finalize when the editor becomes invalid before finalize', async () => {
+    let valid = true
+    let resolveCreate: () => void = () => {}
+    mockDb.createResult = new Promise((resolve) => { resolveCreate = () => resolve({ data: 'plan-1', error: null }) })
+    const pending = createAndFinalizeTreatmentPlan({ encounterId: 'enc', title: 'Plan', notes: '', items: [] } as never, () => valid)
+    // Access is revoked while the create RPC is still in flight.
+    valid = false
+    resolveCreate()
+    const result = await pending
+    expect(result).toBe('plan-1')
+    const names = mockDb.rpcCalls.map((call) => call[0])
+    expect(names).toContain('create_treatment_plan')
+    expect(names).not.toContain('finalize_treatment_plan')
+  })
+
+  it('finalizes when the editor stays valid, preserving default behaviour for existing callers', async () => {
+    mockDb.createResult = Promise.resolve({ data: 'plan-2', error: null })
+    const result = await createAndFinalizeTreatmentPlan({ encounterId: 'enc', title: 'Plan', notes: '', items: [] } as never)
+    expect(result).toBe('plan-2')
+    expect(mockDb.rpcCalls.map((call) => call[0])).toContain('finalize_treatment_plan')
   })
 })
