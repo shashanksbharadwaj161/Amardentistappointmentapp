@@ -12,6 +12,8 @@ insert into auth.users(id,aud,role,email,email_confirmed_at,raw_user_meta_data) 
 ('41000000-0000-4000-8000-000000000008','authenticated','authenticated','dentist-two@example.test',now(),'{"full_name":"Dentist Two"}');
 
 insert into public.user_roles(user_id,role) values
+('41000000-0000-4000-8000-000000000002','dentist'),
+('41000000-0000-4000-8000-000000000008','dentist'),
 ('41000000-0000-4000-8000-000000000006','admin'),
 ('41000000-0000-4000-8000-000000000007','super_admin');
 
