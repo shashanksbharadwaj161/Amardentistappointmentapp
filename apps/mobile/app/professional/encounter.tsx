@@ -56,17 +56,31 @@ export function isPrescriptionFinalized(prescription: { status: string; finalize
 export const clinicalEncounterQueryKey = (accountId: string | undefined, appointmentId: string | undefined) => ['clinical-encounter', appointmentId, accountId] as const
 export const prescribingSafetyQueryKey = (accountId: string | undefined, patientProfileId: string | undefined) => ['prescribing-safety', patientProfileId, accountId] as const
 
+// Permission wrapper: only a signed-in dentist may reach the clinical editor, and the inner editor is
+// keyed by actor id + appointment id. Any change to those — role loss, account switch, or appointment
+// switch — unmounts the inner editor so all local clinical state (notes, conflicts, medication fields)
+// is discarded rather than lingering after access is lost. A stable actor+appointment with unchanged
+// permissions keeps the same key, so background polling preserves unsaved drafts.
 export default function ClinicalEncounterScreen() {
   const { appointmentId, patientName } = useLocalSearchParams<{ appointmentId: string; patientName?: string }>()
   const { profile, loading } = useAuth()
+  const canAccess = Boolean(profile && profile.roles.includes('dentist'))
+  if (!loading && !canAccess) return <Redirect href="/" />
+  if (!canAccess || !profile) return null
+  return <ClinicalEncounterEditor key={`${profile.id}:${appointmentId ?? ''}`} actorId={profile.id} appointmentId={appointmentId} patientName={patientName} />
+}
+
+function ClinicalEncounterEditor({ actorId, appointmentId, patientName }: { actorId: string; appointmentId?: string; patientName?: string }) {
   const { t } = useLocale()
   const { width } = useWindowDimensions()
   const queryClient = useQueryClient()
-  const record = useQuery({ queryKey: clinicalEncounterQueryKey(profile?.id, appointmentId), queryFn: () => openClinicalEncounter(appointmentId!), enabled: Boolean(profile && appointmentId) })
+  // Query execution requires dentist access: this editor only mounts under the dentist wrapper, and
+  // the key is scoped to the actor so a different (or de-authorized) account never reuses cached data.
+  const record = useQuery({ queryKey: clinicalEncounterQueryKey(actorId, appointmentId), queryFn: () => openClinicalEncounter(appointmentId!), enabled: Boolean(actorId && appointmentId) })
   const safetyPatientProfileId = record.data?.encounter.patientProfileId
   // Narrow allergy/medication context for the prescribing banner. RLS-gated; an empty or denied
   // result must be shown as "unknown — confirm", never as "no known allergies" (see the band below).
-  const safety = useQuery({ queryKey: prescribingSafetyQueryKey(profile?.id, safetyPatientProfileId), queryFn: () => getPrescribingSafetyContext(safetyPatientProfileId!), enabled: Boolean(profile && safetyPatientProfileId) })
+  const safety = useQuery({ queryKey: prescribingSafetyQueryKey(actorId, safetyPatientProfileId), queryFn: () => getPrescribingSafetyContext(safetyPatientProfileId!), enabled: Boolean(actorId && safetyPatientProfileId) })
   const [notes, setNotes] = useState<EncounterNoteFields>(emptyNotes)
   const notesRef = useRef<EncounterNoteFields>(notes)
   notesRef.current = notes
@@ -92,6 +106,11 @@ export default function ClinicalEncounterScreen() {
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<string | null>(null)
   const finalizingRef = useRef(false)
+  // Tracks whether this editor is still mounted, so async continuations that resume after the editor
+  // is unmounted (role revoked, account/appointment switch mid-request) do not run follow-on clinical
+  // mutations or surface results for a no-longer-authorized actor.
+  const mountedRef = useRef(true)
+  useEffect(() => () => { mountedRef.current = false }, [])
 
   // Merge newly loaded server notes into the editable fields. Un-edited fields adopt the server
   // value (so applied AI notes surface); an edited field is preserved, and if the server also
@@ -123,9 +142,6 @@ export default function ClinicalEncounterScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record.data?.encounter])
 
-  if (!loading && !profile) return <Redirect href="/" />
-  if (!profile) return null
-
   const updateNote = (key: keyof EncounterNoteFields, value: string) => {
     if (finalizingRef.current) return
     const updated = { ...notesRef.current, [key]: value }; notesRef.current = updated; setNotes(updated)
@@ -143,7 +159,7 @@ export default function ClinicalEncounterScreen() {
     if (incoming !== undefined) { const updated = { ...notesRef.current, [key]: incoming }; notesRef.current = updated; setNotes(updated) }
     keepMine(key)
   }
-  const refresh = async () => { await queryClient.invalidateQueries({ queryKey: clinicalEncounterQueryKey(profile?.id, appointmentId) }) }
+  const refresh = async () => { await queryClient.invalidateQueries({ queryKey: clinicalEncounterQueryKey(actorId, appointmentId) }) }
   const persistNotes = async (): Promise<boolean> => {
     if (Object.keys(conflictsRef.current).length > 0) { setMessage(t('resolveConflictsFirst')); return false }
     const encounterId = record.data?.encounter.id
@@ -176,7 +192,7 @@ export default function ClinicalEncounterScreen() {
     const parsed = prescriptionDraftSchema.safeParse({ encounterId: record.data?.encounter.id, prescriptionId: null, instructions: t('takeAsDirected'), changeReason: 'Prescription reviewed', items: [{ medicineName: medicine, strength, dosage, route: 'oral', frequency, duration, instructions: '' }] })
     if (!parsed.success) return setMessage(t('checkClinicalFields'))
     setBusy('prescription'); setMessage(null)
-    try { const prescriptionId = await savePrescription(parsed.data); await finalizePrescription(prescriptionId); setMedicine(''); setStrength(''); setDosage(''); setFrequency(''); setDuration(''); setMessage(t('prescriptionFinalized')); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
+    try { const prescriptionId = await savePrescription(parsed.data); if (!mountedRef.current) return; await finalizePrescription(prescriptionId); setMedicine(''); setStrength(''); setDosage(''); setFrequency(''); setDuration(''); setMessage(t('prescriptionFinalized')); await refresh() } catch { setMessage(t('clinicalActionFailed')) } finally { setBusy(null) }
   }
   const finalizeExistingPrescription = async (prescriptionId: string) => {
     setBusy(`prescription-${prescriptionId}`); setMessage(null)
@@ -211,6 +227,9 @@ export default function ClinicalEncounterScreen() {
       // Refresh before publishing; a failed refetch means we cannot prove the notes are current,
       // so finalizing is blocked rather than risk publishing a stale record to the patient.
       const latest = await record.refetch()
+      // If access was lost (role revoked / switch) while the refresh was in flight, abort before any
+      // follow-on clinical mutation or state update for the now-unmounted, unauthorized editor.
+      if (!mountedRef.current) return
       if (latest.isError || !latest.data) { setMessage(t('refreshFailedStale')); return }
       const e = latest.data.encounter
       const expectedNotes: EncounterNoteFields = { complaint: e.chiefComplaint, subjective: e.subjectiveNotes, objective: e.objectiveNotes, assessment: e.assessment, plan: e.plan }
