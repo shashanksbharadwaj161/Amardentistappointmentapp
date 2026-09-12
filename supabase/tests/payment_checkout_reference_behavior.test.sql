@@ -30,8 +30,8 @@ select is((select provider_payload from public.payment_transactions where id='22
 select is((select status::text from public.payment_transactions where id='22000000-0022-4000-8000-000000000005'),'pending','checkout moves payment to pending');
 select throws_ok($$select public.set_payment_checkout_result('22000000-0022-4000-8000-000000000099','https://checkout.example.test','missing-id','{}')$$,'22023','PAYMENT_NOT_FOUND','unknown payment still fails validation');
 select throws_ok($$select public.set_payment_checkout_result(null,'https://checkout.example.test','missing-id','{}')$$,'22023','PAYMENT_NOT_FOUND','null payment still fails validation');
-select lives_ok($$select public.set_payment_checkout_result('22000000-0022-4000-8000-000000000005',' ',' ',null)$$,'blank optional checkout details preserve existing normalization behavior');
-select ok((select provider_payment_id is null and provider_checkout_url is null from public.payment_transactions where id='22000000-0022-4000-8000-000000000005'),'blank argument becomes null rather than reusing the legacy reference');
-select is((select provider_payload from public.payment_transactions where id='22000000-0022-4000-8000-000000000005'),'{}'::jsonb,'null payload becomes empty object');
+select throws_ok($$select public.set_payment_checkout_result('22000000-0022-4000-8000-000000000005',' ',' ',null)$$,'22023','PAYMENT_CHECKOUT_ALREADY_CREATED','blank retry cannot erase an established checkout');
+select ok((select provider_payment_id='new-provider-id' and provider_checkout_url='https://checkout.example.test/session' from public.payment_transactions where id='22000000-0022-4000-8000-000000000005'),'rejected blank retry preserves established provider details');
+select is((select provider_payload from public.payment_transactions where id='22000000-0022-4000-8000-000000000005'),'{"checkout":"created"}'::jsonb,'rejected retry preserves original provider payload');
 select * from finish();
 rollback;
