@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import ClinicalEncounterScreen, { isPrescriptionFinalized, reconcileEncounterNotes } from '../../app/professional/encounter'
-import { finalizeEncounter, finalizePrescription, openClinicalEncounter, saveAndFinalizeEncounter, saveEncounter } from '../lib/phase4'
+import { finalizeEncounter, finalizePrescription, getPrescribingSafetyContext, openClinicalEncounter, saveAndFinalizeEncounter, saveEncounter } from '../lib/phase4'
 
 jest.mock('lucide-react-native', () => new Proxy({}, { get: () => () => null }))
 jest.mock('expo-router', () => ({ Redirect: () => null, Stack: { Screen: () => null }, router: { push: jest.fn(), back: jest.fn() }, useLocalSearchParams: () => ({ appointmentId: 'appt1' }) }))
@@ -12,7 +12,7 @@ jest.mock('../components/Screen', () => ({ Screen: ({ children }: { children: Re
 jest.mock('../lib/phase4', () => ({
   openClinicalEncounter: jest.fn(), saveEncounter: jest.fn(), addDiagnosis: jest.fn(), saveToothObservation: jest.fn(),
   savePrescription: jest.fn(), finalizePrescription: jest.fn(), createAndFinalizeTreatmentPlan: jest.fn(),
-  getClinicalMediaDownloadUrl: jest.fn(), uploadClinicalMedia: jest.fn(), finalizeEncounter: jest.fn(), saveAndFinalizeEncounter: jest.fn(),
+  getClinicalMediaDownloadUrl: jest.fn(), uploadClinicalMedia: jest.fn(), finalizeEncounter: jest.fn(), saveAndFinalizeEncounter: jest.fn(), getPrescribingSafetyContext: jest.fn(),
 }))
 
 const item = { id: 'i1', medicineName: 'Amoxicillin', strength: '500 mg', dosage: '1 capsule', route: 'oral', frequency: 'Every 8 hours', duration: '5 days', instructions: '' }
@@ -222,5 +222,33 @@ describe('isPrescriptionFinalized', () => {
     expect(isPrescriptionFinalized({ status: 'finalized', finalizedAt: null })).toBe(true)
     expect(isPrescriptionFinalized({ status: 'draft', finalizedAt: '2026-01-01T00:00:00Z' })).toBe(true)
     expect(isPrescriptionFinalized({ status: 'draft', finalizedAt: null })).toBe(false)
+  })
+})
+
+describe('prescribing safety context', () => {
+  const withPatient = () => bundle({ encounter: { patientProfileId: '00000000-0000-4000-8000-000000000001' } })
+  it('shows recorded allergies and the confirm reminder above prescribing', async () => {
+    jest.mocked(openClinicalEncounter).mockResolvedValue(withPatient() as never)
+    jest.mocked(getPrescribingSafetyContext).mockResolvedValue({ historyRecorded: true, allergies: [{ id: 'a1', allergen: 'Penicillin', reaction: 'Rash', severity: 'moderate', active: true }], currentMedications: ['Warfarin'] })
+    show()
+    await waitFor(() => expect(screen.getByText(/Penicillin/)).toBeTruthy())
+    expect(screen.getByText('Penicillin · Rash · moderate')).toBeTruthy()
+    expect(screen.getByText('Warfarin')).toBeTruthy()
+    expect(screen.getByText('rxSafetyConfirm')).toBeTruthy()
+  })
+  it('never implies no known allergies when the record is empty or access is denied', async () => {
+    jest.mocked(openClinicalEncounter).mockResolvedValue(withPatient() as never)
+    jest.mocked(getPrescribingSafetyContext).mockResolvedValue({ historyRecorded: false, allergies: [], currentMedications: [] })
+    show()
+    await waitFor(() => expect(screen.getByText('rxSafetyNoAllergiesOnFile')).toBeTruthy())
+    expect(screen.getByText('rxSafetyNoMedicationsOnFile')).toBeTruthy()
+    expect(screen.getByText('rxSafetyConfirm')).toBeTruthy()
+  })
+  it('surfaces an explicit unavailable warning when the safety read errors', async () => {
+    jest.mocked(openClinicalEncounter).mockResolvedValue(withPatient() as never)
+    jest.mocked(getPrescribingSafetyContext).mockRejectedValue(new Error('denied'))
+    show()
+    await waitFor(() => expect(screen.getByText('rxSafetyUnavailable')).toBeTruthy())
+    expect(screen.getByText('rxSafetyConfirm')).toBeTruthy()
   })
 })

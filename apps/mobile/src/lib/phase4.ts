@@ -158,6 +158,31 @@ export async function getPatientClinicalRecords(patientProfileId: string): Promi
   return { history, allergies: (allergyResult.data ?? []).map((row) => ({ id: row.id, allergen: row.allergen, reaction: row.reaction, severity: row.severity, active: row.active })), records }
 }
 
+export type PrescribingSafetyContext = { historyRecorded: boolean; allergies: AllergySummary[]; currentMedications: string[] }
+
+// Narrow, RLS-respecting read for the prescribing safety banner: only active allergies and the
+// current-medications list, relying on the same can_read_patient_history policy as the full record
+// view — no broad record fetch and no consent bypass. When the reader is not authorized the policy
+// simply returns no rows (no error), so an empty result is indistinguishable from "genuinely none".
+// Callers must therefore treat empty/denied as "unknown — confirm with the patient", never as
+// "no known allergies". `historyRecorded` only reflects whether a history row is visible, not that
+// allergies were reviewed.
+export async function getPrescribingSafetyContext(patientProfileId: string): Promise<PrescribingSafetyContext> {
+  if (!supabase || previewEnabled) return { historyRecorded: true, allergies: [{ id: '84000000-0000-4000-8000-000000000001', allergen: 'Penicillin', reaction: 'Rash', severity: 'moderate', active: true }], currentMedications: ['Medicine A'] }
+  const client = supabase
+  const [historyResult, allergyResult] = await Promise.all([
+    client.from('patient_medical_histories').select('current_medications').eq('patient_profile_id', patientProfileId).maybeSingle(),
+    client.from('patient_allergies').select('*').eq('patient_profile_id', patientProfileId).eq('active', true).order('created_at'),
+  ])
+  const error = historyResult.error ?? allergyResult.error
+  if (error) throw new Error(error.message)
+  return {
+    historyRecorded: historyResult.data !== null,
+    allergies: (allergyResult.data ?? []).map((row) => ({ id: row.id, allergen: row.allergen, reaction: row.reaction, severity: row.severity, active: row.active })),
+    currentMedications: historyResult.data?.current_medications ?? [],
+  }
+}
+
 export async function saveMedicalHistory(input: MedicalHistoryInput): Promise<void> {
   if (!supabase || previewEnabled) return
   const { error } = await supabase.rpc('save_patient_medical_history', { target_patient_profile_id: input.patientProfileId, condition_list: input.conditions, medication_list: input.currentMedications, surgery_list: input.priorSurgeries, pregnancy: input.pregnancyStatus, tobacco: input.tobaccoUse, history_notes: input.notes, change_reason: 'Patient medical history reviewed' })
